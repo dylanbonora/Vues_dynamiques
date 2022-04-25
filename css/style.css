@@ -1,0 +1,33 @@
+h1 {
+  text-align: center;
+}
+
+section {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  /* grid-auto-rows: minmax(100px, auto); */
+  gap: 10px;
+  width: 80%;
+  margin: auto;
+}
+
+thead {
+  font-size: 1rem;
+  text-align: left;
+  border-bottom: 1px solid grey;
+}
+
+td,
+th {
+  padding: 3px;
+}
+
+.table-striped > tbody > tr:nth-of-type(odd) > * {
+  --bs-table-accent-bg: #f2c6ab78;
+}
+
+img {
+  width: 100%;
+  margin: 10px 0;
+  border: 1px solid #7b8ab8;
+}

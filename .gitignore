@@ -1,0 +1,8 @@
+*.csv
+*.txt
+
+csv_pieces/
+csv_images/
+img_temp/
+Rapports/
+uploads/
