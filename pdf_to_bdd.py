@@ -33,9 +33,6 @@ imgTemp_dir.mkdir(exist_ok=True)
 # LISTE QUI RECUPERERA LES FICHIERS QUI GENERENT DES ERREURS
 error_files = []
 
-# LISTE GLOBALE pour le contenu csv des images
-img_datas_rows = []
-
 # try:
 
 # Params de connexion à la BDD
@@ -49,17 +46,22 @@ connection_params = {
 # CONNEXION A LA BDD
 # Avec curseur pour pouvoir executer des requêtes
 # cnx = mysql.connector.connect(**connection_params)
+# cursor = cnx.cursor(prepared=True)
 with mysql.connector.connect(**connection_params) as cnx:
     with cnx.cursor(prepared=True) as cursor:
-# cursor = cnx.cursor(prepared=True)
         # ID du ou des modèles entrés par l'admin
         models_ids_list = list(map(int, input("ID du ou des modèles (séparés par des espaces): ").split()))
         # print("List of models_ids: ", models_ids_tuple)
 
         # BOUCLE SUR LES MODELES
         for model_id in models_ids_list:
-        # for idx,model_id in enumerate(models_ids_list):
+
+            # CREER SOUS-DOSSIER TEMPORAIRE DU NOM DE L'ID du MODELE 
+            # pour recevoir les images du pdf, non hashés
+            img_pdf_dir = Path.cwd() / "img_temp" / f'{model_id}'
+            img_pdf_dir.mkdir(exist_ok=True)
             
+            # Requête pour récupérer marque et nom du fichier
             query = "SELECT MO_MA_ID, filename FROM fichiers as f \
                         JOIN modeles as m ON f.model_id = m.MO_ID \
                         WHERE f.type = 'exploded_view' AND f.model_id = %s" % model_id
@@ -73,12 +75,16 @@ with mysql.connector.connect(**connection_params) as cnx:
             # Liste qui récupèrera les dataframes du pdf
             dfs_pdf = []
 
+            # LISTE GLOBALE pour le contenu csv des images
+            img_datas_rows = []
+
             # BOUCLE SUR LES PAGES DU PDF
             with fitz.open(file_relpath) as pages_pdf:
-                for iPage in range(len(pages_pdf)):
 
-                    # SI C'EST UNE VUE VIESSMANN
-                    if marque_eqpmt == 4:
+                # SI C'EST UNE VUE VIESSMANN
+                if marque_eqpmt == 4:
+
+                    for iPage in range(len(pages_pdf)):
 
                         # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES
                         tables = camelot.read_pdf(
@@ -181,13 +187,8 @@ with mysql.connector.connect(**connection_params) as cnx:
                             else:
                                 # LA PAGE EST UN SCHEMA
 
-                                # CREER SOUS-DOSSIER TEMPORAIRE DU NOM DE L'ID du MODELE 
-                                # pour recevoir les images du pdf, non hashés
-                                img_pdf_dir = Path.cwd() / "img_temp" / f'{model_id}'
-                                img_pdf_dir.mkdir(exist_ok=True)
-
                                 # Liste qui récupérera les données des images 
-                                img_datas_row = ['', model_id, 'exploded_view']
+                                img_datas_row = ['', model_id, 'exploded_view_picture']
 
                                 # Sauvegarder la page en jpg dans dossier temporaire
                                 page = pages_pdf.load_page(iPage)  
@@ -227,78 +228,75 @@ with mysql.connector.connect(**connection_params) as cnx:
                                 # Vidage de la liste de l'image courante
                                 img_datas_row.clear() 
 
-                # FIN DE LA BOUCLE SUR LES PAGES DU PDF
+                    # FIN DE LA BOUCLE SUR LES PAGES DU PDF
 
-            # CONCATENER LES DATAFRAMES DU PDF EN UNE SEULE
-            # if dfs_pdf != [] and filename not in error_files:
-            if dfs_pdf != []:
-                dfs_pdf = pd.concat(dfs_pdf)
+                    # CONCATENER LES DATAFRAMES DU PDF EN UNE SEULE
+                    # if dfs_pdf != [] and filename not in error_files:
+                    if dfs_pdf != []:
+                        dfs_pdf = pd.concat(dfs_pdf)
 
-                # CONVERTIR LA DATAFRAME GLOBALE DU PDF EN CSV
-                csv_filepath = Path.cwd() / "csv_pieces" / f"{model_id}_pieces.csv"
-                dfs_pdf.to_csv(csv_filepath, index=False)
+                        # CONVERTIR LA DATAFRAME GLOBALE DU PDF EN CSV
+                        csv_filepath = Path.cwd() / "csv_pieces" / f"{model_id}_pieces.csv"
+                        dfs_pdf.to_csv(csv_filepath, index=False)
 
-                # SUPPRIMER LES GUILLEMETS ET LES ESPACES SUPERFLUS
-                with open(csv_filepath, "r", encoding="utf-8") as text:
-                    csv_text = (
-                        text.read().replace('"', "").replace(" ,", ",").replace(", ", ",")
-                    )
+                        # SUPPRIMER LES GUILLEMETS ET LES ESPACES SUPERFLUS
+                        with open(csv_filepath, "r", encoding="utf-8") as text:
+                            csv_text = (
+                                text.read().replace('"', "").replace(" ,", ",").replace(", ", ",")
+                            )
 
-                with open(csv_filepath, "w", encoding="utf-8") as text:
-                    text.write(csv_text)
+                        with open(csv_filepath, "w", encoding="utf-8") as text:
+                            text.write(csv_text)
 
-            # CONVERTIR LA LISTE DES DONNEES DES IMAGES du pdf courant EN CSV
-            csv_images_filepath = Path.cwd() / "csv_images" / f"{model_id}_img.csv"
+                    # CONVERTIR LA LISTE DES DONNEES DES IMAGES du pdf courant EN CSV
+                    csv_images_filepath = Path.cwd() / "csv_images" / f"{model_id}_img.csv"
 
-            with open(csv_images_filepath, 'w', newline='') as f:
-                write = csv.writer(f)
-                write.writerows(img_datas_rows)
-# FIN DE LA BOUCLE SUR LES MODELES
+                    with open(csv_images_filepath, 'w', newline='') as f:
+                        write = csv.writer(f)
+                        write.writerows(img_datas_rows)
 
-            # RECUPERER LE NOMBRE DE FICHIERS CSV TRAITES
-            csv_images_list = list((Path.cwd() / "csv_images").glob("*.csv"))
-            csv_pieces_list = list((Path.cwd() / "csv_pieces").glob("*.csv"))
-            processfiles_csv = (len(csv_images_list) + len(csv_pieces_list))
+        # FIN DE LA BOUCLE SUR LES MODELES
 
-            # CONCATENER LES CSV PIECES DE CHAQUE PDF EN UN SEUL
-            with open("csv_pieces_final.csv", "w", encoding="utf-8") as outfile:
-                for i, fname in enumerate(csv_pieces_list):
-                    with open(fname, "r", encoding="utf-8") as infile:
-                        # if i != 0:                  # Supprime les en-têtes sauf celui du 1er csv
-                        infile.readline()
-                        shutil.copyfileobj(infile, outfile)
+        # RECUPERER LE NOMBRE DE FICHIERS CSV TRAITES
+        csv_images_list = list((Path.cwd() / "csv_images").glob("*.csv"))
+        csv_pieces_list = list((Path.cwd() / "csv_pieces").glob("*.csv"))
+        processfiles_csv = (len(csv_images_list) + len(csv_pieces_list))
 
-            # ENVOI CSV PIECES GLOBAL EN BDD
-            datas_pieces = pd.read_csv("csv_pieces_final.csv", header=None, dtype = {0: object, 1: int, 2: str, 3: str, 4: str, 5: str, 6: int, 7: int, 8: object, 10: object})
-            # print(datas_pieces.head())
-            # print(datas_pieces.dtypes)
+        # CONCATENER LES CSV PIECES DE CHAQUE PDF EN UN SEUL
+        with open("csv_pieces_final.csv", "w", encoding="utf-8") as outfile:
+            for i, fname in enumerate(csv_pieces_list):
+                with open(fname, "r", encoding="utf-8") as infile:
+                    # if i != 0:                  # Supprime les en-têtes sauf celui du 1er csv
+                    infile.readline()
+                    shutil.copyfileobj(infile, outfile)
 
-            for i, row in datas_pieces.iterrows():
-                query = 'INSERT INTO pieces VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
-                cursor.execute(query, tuple(row))
-                cnx.commit()
-                                                
-            print("Nombre d'insert de pieces executés' :", cursor.rowcount)
+        # ENVOI CSV PIECES GLOBAL EN BDD
+        datas_pieces = pd.read_csv("csv_pieces_final.csv", header=None, dtype = {0: object, 1: int, 2: str, 3: str, 4: str, 5: str, 6: int, 7: int, 8: object, 10: object})
 
-            # CONCATENER LES CSV FICHIERS DE CHAQUE PDF EN UN SEUL
-            with open("csv_images_final.csv", "w", encoding="utf-8") as outfile:
-                for i, fname in enumerate(csv_images_list):
-                    with open(fname, "r", encoding="utf-8") as infile:
-                        # if i != 0:                  # Supprime les en-têtes sauf celui du 1er csv
-                        infile.readline()
-                        shutil.copyfileobj(infile, outfile)
+        for i, row in datas_pieces.iterrows():
+            query = 'INSERT INTO pieces VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
+            cursor.execute(query, tuple(row))
+            cnx.commit()
+                                            
+        print("Nombre d'insert de pieces executés' :", cursor.rowcount)
 
-            # ENVOI CSV IMAGES GLOBAL EN BDD
-            datas_img = pd.read_csv("csv_images_final.csv", header=None, dtype = {0: object, 1: int, 2: str, 3: str, 4: str, 5: str, 6: str, 7: int, 9: object})
-            # print(datas_pieces.head())
-            # print(datas_pieces.dtypes)
+        # CONCATENER LES CSV FICHIERS DE CHAQUE PDF EN UN SEUL
+        with open("csv_images_final.csv", "w", encoding="utf-8") as outfile:
+            for i, fname in enumerate(csv_images_list):
+                with open(fname, "r", encoding="utf-8") as infile:
+                    # if i != 0:                  # Supprime les en-têtes sauf celui du 1er csv
+                    # infile.readline()
+                    shutil.copyfileobj(infile, outfile)
 
-            for i, row in datas_img.iterrows():
-                query = 'INSERT INTO fichiers VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
-                cursor.execute(query, tuple(row))
-                cnx.commit()
-                                                
-            print("Nombre d'insert d'images executés' :", cursor.rowcount)
+        # ENVOI CSV IMAGES GLOBAL EN BDD
+        datas_img = pd.read_csv("csv_images_final.csv", header=None, dtype = {0: object, 1: int, 2: str, 3: str, 4: str, 5: str, 6: str, 7: int, 9: object})
+
+        for i, row in datas_img.iterrows():
+            query = 'INSERT INTO fichiers VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
+            cursor.execute(query, tuple(row))
+            cnx.commit()
+                                            
+        print("Nombre d'insert d'images executés' :", cursor.rowcount)
 
 # except Exception as err:
 #     print(f"Erreur : {err}")
