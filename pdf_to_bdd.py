@@ -62,7 +62,7 @@ with mysql.connector.connect(**connection_params) as cnx:
     is_all_digits = test_list()
 
     while not is_all_digits:
-        print('Erreur. Entrez uniquement des nombres')
+        print('\n Erreur. Entrez uniquement des nombres')
         models_ids_list = entrez_id()
         is_all_digits = test_list()
 
@@ -79,16 +79,25 @@ with mysql.connector.connect(**connection_params) as cnx:
 
         # Si model_id déjà dans table pièces
         if res != []:
-            # Ask admin si UPDATE ou Erreur
-            is_Maj = input(f"Le modèle {model_id} existe déjà dans la table des pièces \n Tapez 'O' pour mettre à jour (Attention, ceci écrasera les données précédentes) \n Sinon tapez 'N' : ")
+
+            def ask_update():
+                is_Maj = input(f"Le modèle {model_id} existe déjà dans la table des pièces \n Tapez 'O' pour mettre à jour (Attention, ceci écrasera les données précédentes) \n Sinon tapez 'N' : ")
+                return is_Maj
+
+            is_update = ask_update()
+
+            while not (is_update.lower() == 'o' or is_update.lower() == 'n'):
+                print('\n Erreur. Entrez "O" ou "N"')
+                is_update = ask_update()
 
             # Si erreur
-            if is_Maj.lower() == 'n':
+            if is_update.lower() == 'n':
+                print("OK pas de MAJ")
                 continue
             # Si Update
-            elif is_Maj.lower() == 'o':
+            elif is_update.lower() == 'o':
                 # On supprime les anciennes données des tables 'pieces' et 'fichiers' (type = 'exploded_view_picture')
-                print("OK pour maj")
+                print("OK pour MAJ")
                 
                 query = "DELETE FROM pieces WHERE model_id = %s" % model_id
                 cursor.execute(query)  
