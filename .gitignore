@@ -1,8 +1,10 @@
 *.csv
 *.txt
 
+.tmp.driveupload/
 csv_pieces/
 csv_images/
 img_temp/
 Rapports/
 uploads/
+.vscode/
