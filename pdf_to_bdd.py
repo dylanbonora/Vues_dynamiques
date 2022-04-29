@@ -47,14 +47,8 @@ connection_params = {
 
 # CONNEXION A LA BDD
 # Avec curseur pour pouvoir executer des requêtes
-# cnx = mysql.connector.connect(**connection_params)
-# cursor = cnx.cursor(prepared=True)
 with mysql.connector.connect(**connection_params) as cnx:
     cnx.autocommit = True
-    # cursor = cnx.cursor()
-    # with cnx.cursor() as cursor:
-    # with cnx.cursor(buffered=True) as cursor:
-    # with cnx.cursor(prepared=True) as cursor:
 
         # ID du ou des modèles entrés par l'admin
     models_ids_list = list(map(int, input("ID du ou des modèles (séparés par des espaces): ").split()))
@@ -65,13 +59,13 @@ with mysql.connector.connect(**connection_params) as cnx:
         # VERIFIER SI déjà traité
         query = "SELECT piece_ID FROM pieces \
                     WHERE model_id = %s" % model_id
-        cursor = cnx.cursor()
+        cursor = cnx.cursor(buffered=True)
         cursor.execute(query)            
-        res = cursor.fetchall()
-        print('piece_ID from pieces ', res)
+        res = cursor.fetchmany(10)
+        # print('piece_ID from pieces ', res)
 
         # Si model_id déjà dans table pièces
-        if res!=[]:
+        if res != []:
             # Ask admin si UPDATE ou Erreur
             is_Maj = input(f"Le modèle {model_id} existe déjà dans la table des pièces \n Tapez 'O' pour mettre à jour (Attention, ceci écrasera les données précédentes) \n Sinon tapez 'N' : ")
 
@@ -97,13 +91,12 @@ with mysql.connector.connect(**connection_params) as cnx:
         img_pdf_dir = Path.cwd() / "img_temp" / f'{model_id}'
         img_pdf_dir.mkdir(exist_ok=True)
         
-        # Requête pour récupérer marque et nom du fichier
+        # Requête pour récupérer marque et nom de la vue éclatée
         query = "SELECT MO_MA_ID, filename FROM fichiers as f \
                     JOIN modeles as m ON f.model_id = m.MO_ID \
                     WHERE f.type = 'exploded_view' AND f.model_id = %s" % model_id
-        cursor2 = cnx.cursor(buffered=True)
-        cursor2.execute(query)            
-        file_datas = cursor2.fetchone()
+        cursor.execute(query)            
+        file_datas = cursor.fetchone()
 
         marque_eqpmt = file_datas[0]
         filename = file_datas[1]
@@ -316,15 +309,15 @@ with mysql.connector.connect(**connection_params) as cnx:
         concat_csv("csv_pieces_final.csv",csv_pieces_list)
 
         # ENVOI csv pièces concaténé en BDD
-        cursor3 = cnx.cursor(prepared=True)
+        cursor2 = cnx.cursor(prepared=True)
 
         datas_pieces = pd.read_csv("csv_pieces_final.csv", header=None, dtype = {2: str})
 
         for i, row in datas_pieces.iterrows():
             query = 'INSERT INTO pieces VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
-            cursor3.execute(query, tuple(row))
+            cursor2.execute(query, tuple(row))
                                             
-        print("Nombre d'insert de pieces executés' :", cursor3.rowcount)
+        print("Nombre d'insert de pieces executés' :", cursor2.rowcount)
 
         # CONCAT des csv images
         concat_csv("csv_images_final.csv",csv_images_list)
@@ -334,9 +327,9 @@ with mysql.connector.connect(**connection_params) as cnx:
 
         for i, row in datas_img.iterrows():
             query = 'INSERT INTO fichiers VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
-            cursor3.execute(query, tuple(row))
+            cursor2.execute(query, tuple(row))
                                             
-        print("Nombre d'insert d'images executés' :", cursor3.rowcount)
+        print("Nombre d'insert d'images executés' :", cursor2.rowcount)
 
     else:
         print('Aucun traitement effectué')
