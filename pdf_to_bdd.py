@@ -50,8 +50,21 @@ connection_params = {
 with mysql.connector.connect(**connection_params) as cnx:
     cnx.autocommit = True
 
-        # ID du ou des modèles entrés par l'admin
-    models_ids_list = list(map(int, input("ID du ou des modèles (séparés par des espaces): ").split()))
+    def entrez_id():
+        models_ids_list = list(map(str, input("ID du ou des modèles (séparés par des espaces): ").split()))
+        return models_ids_list
+
+    def test_list():
+        is_all_digits = all([val.isdigit() for val in models_ids_list])
+        return is_all_digits
+
+    models_ids_list = entrez_id()
+    is_all_digits = test_list()
+
+    while not is_all_digits:
+        print('Erreur. Entrez uniquement des nombres')
+        models_ids_list = entrez_id()
+        is_all_digits = test_list()
 
     # BOUCLE SUR LES MODELES
     for model_id in models_ids_list:
@@ -62,7 +75,7 @@ with mysql.connector.connect(**connection_params) as cnx:
         cursor = cnx.cursor(buffered=True)
         cursor.execute(query)            
         res = cursor.fetchmany(10)
-        # print('piece_ID from pieces ', res)
+        # print('10 piece_ID from pieces ', res)
 
         # Si model_id déjà dans table pièces
         if res != []:
