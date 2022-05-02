@@ -45,7 +45,7 @@ connection_params = {
 
 # try:
 
-# CONNEXION A LA BDD
+# OUVERTURE D'UNE CONNEXION A LA BDD
 # Avec curseur pour pouvoir executer des requêtes
 with mysql.connector.connect(**connection_params) as cnx:
     cnx.autocommit = True
@@ -54,22 +54,22 @@ with mysql.connector.connect(**connection_params) as cnx:
         models_ids_list = list(map(str, input("ID du ou des modèles (séparés par des espaces): ").split()))
         return models_ids_list
 
-    def test_list():
+    def check_digits():
         is_all_digits = all([val.isdigit() for val in models_ids_list])
         return is_all_digits
 
     models_ids_list = entrez_id()
-    is_all_digits = test_list()
+    is_all_digits = check_digits()
 
     while not is_all_digits:
         print('\n Erreur. Entrez uniquement des nombres')
         models_ids_list = entrez_id()
-        is_all_digits = test_list()
+        is_all_digits = check_digits()
 
     # BOUCLE SUR LES MODELES
     for model_id in models_ids_list:
 
-        # VERIFIER SI déjà traité
+        # VERIFIER SI DEJA DANS TABLE PIECES 
         query = "SELECT piece_ID FROM pieces \
                     WHERE model_id = %s" % model_id
         cursor = cnx.cursor(buffered=True)
@@ -77,9 +77,10 @@ with mysql.connector.connect(**connection_params) as cnx:
         res = cursor.fetchmany(10)
         # print('10 piece_ID from pieces ', res)
 
-        # Si model_id déjà dans table pièces
+        # SI MODEL_ID DEJA TRAITé
         if res != []:
 
+            # On demande si c'est un Update ou une erreur
             def ask_update():
                 is_Maj = input(f"Le modèle {model_id} existe déjà dans la table des pièces \n Tapez 'O' pour mettre à jour (Attention, ceci écrasera les données précédentes) \n Sinon tapez 'N' : ")
                 return is_Maj
@@ -90,13 +91,12 @@ with mysql.connector.connect(**connection_params) as cnx:
                 print('\n Erreur. Entrez "O" ou "N"')
                 is_update = ask_update()
 
-            # Si erreur
+            # Si erreur : on passe au modele suivant ou fin de script
             if is_update.lower() == 'n':
                 print("OK pas de MAJ")
                 continue
-            # Si Update
+            # Si Update : On supprime les anciennes données du modele 
             elif is_update.lower() == 'o':
-                # On supprime les anciennes données des tables 'pieces' et 'fichiers' (type = 'exploded_view_picture')
                 print("OK pour MAJ")
                 
                 query = "DELETE FROM pieces WHERE model_id = %s" % model_id
@@ -106,7 +106,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                 WHERE type = 'exploded_view_picture' AND model_id = %s" % model_id 
                 cursor.execute(query)  
 
-        # Si pas déjà dans table pièces, on traite
+        # SI PAS DEJA DANS TABLE PIECES, ON TRAITE
 
         # CREER SOUS-DOSSIER TEMPORAIRE DU NOM DE L'ID du MODELE 
         # pour recevoir les images du pdf, non hashés
@@ -120,177 +120,185 @@ with mysql.connector.connect(**connection_params) as cnx:
         cursor.execute(query)            
         file_datas = cursor.fetchone()
 
-        marque_eqpmt = file_datas[0]
-        filename = file_datas[1]
-        file_relpath = Path(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf')
+        if file_datas == None:
+            print(f'Pas de vue éclatée trouvée pour le modèle {model_id}')
+            continue
 
-        # Liste qui récupèrera les dataframes du pdf
-        dfs_pdf = []
+        else:
+            marque_eqpmt = file_datas[0]
+            filename = file_datas[1]
+            file_relpath = Path(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf')
 
-        # LISTE GLOBALE pour le contenu csv des images
-        img_datas_rows = []
+            # Liste qui récupèrera les dataframes du pdf
+            dfs_pdf = []
 
-        with fitz.open(file_relpath) as pages_pdf:
+            # LISTE GLOBALE pour le contenu csv des images
+            img_datas_rows = []
 
-            # SI C'EST UNE VUE VIESSMANN
-            if marque_eqpmt == 4:
+            with fitz.open(file_relpath) as pages_pdf:
 
-                try:
-                    # BOUCLE SUR LES PAGES DU PDF
-                    for iPage in range(len(pages_pdf)):
+                # SI C'EST UNE VUE VIESSMANN
+                if marque_eqpmt == 4:
 
-                        # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES
-                        tables = camelot.read_pdf(
-                            f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf',
-                            flavor="stream",
-                            table_areas=["0,736,552,62"],
-                            pages=f"{iPage+1}",
-                        )
+                    try:
+                        # BOUCLE SUR LES PAGES DU PDF
+                        for iPage in range(len(pages_pdf)):
 
-                        # BOUCLE SUR LA OU LES DATAFRAMES DE LA PAGE
-                        for table in tables:
+                            # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES
+                            tables = camelot.read_pdf(
+                                f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf',
+                                flavor="stream",
+                                table_areas=["0,736,552,62"],
+                                pages=f"{iPage+1}",
+                            )
 
-                            # Si plus de 3 colonnes, c'est une page de tableau
-                            if len(table.df.columns) > 3:
+                            # BOUCLE SUR LA OU LES DATAFRAMES DE LA PAGE
+                            for table in tables:
 
-                                # NETTOYAGE, REARRANGEMENT DES TABLEAUX
+                                # Si plus de 3 colonnes, c'est une page de tableau
+                                if len(table.df.columns) > 3:
 
-                                # # SUPPRIMER LA COLONNE DES PRIX, colonne index 5
-                                table.df.drop(5, axis=1, inplace=True)
+                                    # NETTOYAGE, REARRANGEMENT DES TABLEAUX
 
-                                # Suppression des esapces superflus colonne Designation
-                                table.df[2] = table.df[2].str.replace("  ", "")
+                                    # # SUPPRIMER LA COLONNE DES PRIX, colonne index 5
+                                    table.df.drop(5, axis=1, inplace=True)
 
-                                # Insertion d'une colonne à la position 0, pour l'id du modele
-                                table.df.insert(0, "piece_ID", None, allow_duplicates=False)
-                                # Insertion d'une colonne à la position 1, pour l'id du modele
-                                table.df.insert(1, "model_id", model_id, allow_duplicates=False)
+                                    # Suppression des esapces superflus colonne Designation
+                                    table.df[2] = table.df[2].str.replace("  ", "")
 
-                                # # Renommer les index des colonnes (par défaut : entiers)
-                                table.df.rename(
-                                    columns={
-                                        0: "repere",
-                                        1: "reference",
-                                        2: "designation",
-                                        3: "grpMat",
-                                        4: "quantite",
-                                    },
-                                    inplace=True,
-                                )
+                                    # Insertion d'une colonne à la position 0, pour l'id du modele
+                                    table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                    # Insertion d'une colonne à la position 1, pour l'id du modele
+                                    table.df.insert(1, "model_id", model_id, allow_duplicates=False)
 
-                                # Ajouter colonne 'page'
-                                table.df["page"] = iPage + 1
+                                    # # Renommer les index des colonnes (par défaut : entiers)
+                                    table.df.rename(
+                                        columns={
+                                            0: "repere",
+                                            1: "reference",
+                                            2: "designation",
+                                            3: "grpMat",
+                                            4: "quantite",
+                                        },
+                                        inplace=True,
+                                    )
 
-                                # Ajouter colonne 'Substitution' vide (modèles Chappee)
-                                table.df["substitution"] = ''
+                                    # Ajouter colonne 'page'
+                                    table.df["page"] = iPage + 1
 
-                                # Ajouter colonne 'created_at' 
-                                table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                    # Ajouter colonne 'Substitution' vide (modèles Chappee)
+                                    table.df["substitution"] = ''
 
-                                # Ajouter colonne 'updated_at' 
-                                table.df["updated_at"] = None
+                                    # Ajouter colonne 'created_at' 
+                                    table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
 
-                                # SUPPRIMER LES LIGNES D'EN TETES
-                                # en vérifiant la longueur de la valeur dans la colonne 'Position'
-                                # si plus de 4 caractères ou égal à 1, c'est un en-tête
-                                for ligne, value in enumerate(table.df["repere"]):
+                                    # Ajouter colonne 'updated_at' 
+                                    table.df["updated_at"] = None
 
-                                    if len(value) > 4 or len(value) == 1:
-                                        table.df.drop(ligne, inplace=True)
+                                    # SUPPRIMER LES LIGNES D'EN TETES
+                                    # en vérifiant la longueur de la valeur dans la colonne 'Position'
+                                    # si plus de 4 caractères ou égal à 1, c'est un en-tête
+                                    for ligne, value in enumerate(table.df["repere"]):
 
-                                # On reset les index de ligne sinon bug
-                                table.df.reset_index(drop=True, inplace=True)
+                                        if len(value) > 4 or len(value) == 1:
+                                            table.df.drop(ligne, inplace=True)
 
-                                # CHERCHER LES LIGNES 'DOUBLES' (texte qui déborde sur une nouvelle ligne)
-                                # ET 'REMETTRE' le texte débordant dans la bonne ligne
-                                # Puis supprimer la ligne inutile
-                                for ligne, value in enumerate(table.df["repere"]):
+                                    # On reset les index de ligne sinon bug
+                                    table.df.reset_index(drop=True, inplace=True)
 
-                                    if value == "":
-                                        if table.df["designation"][ligne] != "":
-                                            table.df["designation"][ligne - 1] += (
-                                                " " + table.df["designation"][ligne]
-                                            )
-                                        elif table.df["grpMat"][ligne] != "":
-                                            table.df["grpMat"][ligne - 1] += (
-                                                " " + table.df["grpMat"][ligne]
-                                            )
+                                    # CHERCHER LES LIGNES 'DOUBLES' (texte qui déborde sur une nouvelle ligne)
+                                    # ET 'REMETTRE' le texte débordant dans la bonne ligne
+                                    # Puis supprimer la ligne inutile
+                                    for ligne, value in enumerate(table.df["repere"]):
 
-                                        # Supprimer la ligne contenant le texte débordant
-                                        table.df.drop(ligne, inplace=True)
+                                        if value == "":
+                                            if table.df["designation"][ligne] != "":
+                                                table.df["designation"][ligne - 1] += (
+                                                    " " + table.df["designation"][ligne]
+                                                )
+                                            elif table.df["grpMat"][ligne] != "":
+                                                table.df["grpMat"][ligne - 1] += (
+                                                    " " + table.df["grpMat"][ligne]
+                                                )
 
-                                # On reset les index de ligne sinon bug
-                                table.df.reset_index(drop=True, inplace=True)
+                                            # Supprimer la ligne contenant le texte débordant
+                                            table.df.drop(ligne, inplace=True)
 
-                                # Si valeurs GrpMat décalées dans colonne Designation (bug d'extraction)
-                                # Les récupérer et effacer dans Designation
-                                for ligne, value in enumerate(table.df["grpMat"]):
-                                    if value == "":
-                                        table.df["grpMat"][ligne] = (table.df["designation"][ligne])[-3:]
-                                        table.df["designation"][ligne] = (table.df["designation"][ligne])[:-3]
+                                    # On reset les index de ligne sinon bug
+                                    table.df.reset_index(drop=True, inplace=True)
 
-                                # On remplace les virgules par des espaces dans 'Designation'
-                                table.df["designation"] = table.df["designation"].str.replace(",", "")
+                                    # Si valeurs GrpMat décalées dans colonne Designation (bug d'extraction)
+                                    # Les récupérer et effacer dans Designation
+                                    for ligne, value in enumerate(table.df["grpMat"]):
+                                        if value == "":
+                                            table.df["grpMat"][ligne] = (table.df["designation"][ligne])[-3:]
+                                            table.df["designation"][ligne] = (table.df["designation"][ligne])[:-3]
 
-                                # On ajoute la dataframe à la liste des dataframes du pdf
-                                dfs_pdf.append(table.df)
+                                    # On remplace les virgules par des espaces dans 'Designation'
+                                    table.df["designation"] = table.df["designation"].str.replace(",", "")
 
-                            else:
-                                # LA PAGE EST UN SCHEMA
+                                    # On ajoute la dataframe à la liste des dataframes du pdf
+                                    dfs_pdf.append(table.df)
 
-                                # Liste qui récupérera les données des images 
-                                img_datas_row = ['', model_id, 'exploded_view_picture']
+                                else:
+                                    # LA PAGE EST UN SCHEMA
 
-                                # Sauvegarder la page en jpg dans dossier temporaire
-                                page = pages_pdf.load_page(iPage)  
-                                pix = page.get_pixmap()
-                                image_name = f"{str(iPage+1).zfill(3)}_{filename}.jpg"
-                                pix.save(f"img_temp/{model_id}/{image_name}", "JPEG")
+                                    # Liste qui récupérera les données des images 
+                                    img_datas_row = ['', model_id, 'exploded_view_picture']
 
-                                # Hashage du fichier image avec algo md5 et préfixé avec numéro de page sur 3 chiffres
-                                with open(f"img_temp/{model_id}/{image_name}", encoding="Latin-1") as img:
-                                    data = img.read()
-                                    md5hash_img = hashlib.md5((data).encode("utf-8")).hexdigest()
-                                    md5hash_img = f"{str(iPage+1).zfill(3)}_{md5hash_img}"
+                                    # Sauvegarder la page en jpg dans dossier temporaire
+                                    page = pages_pdf.load_page(iPage)  
+                                    pix = page.get_pixmap()
+                                    image_name = f"{str(iPage+1).zfill(3)}_{filename}.jpg"
+                                    pix.save(f"img_temp/{model_id}/{image_name}", "JPEG")
 
-                                # SAUVEGARDER LA PAGE EN JPG dans dossier 'uploads'
-                                image_name = f'{md5hash_img}.jpg'
-                                pix.save(f"uploads/{marque_eqpmt}/{model_id}/{image_name}", "JPEG")
+                                    # Hashage du fichier image avec algo md5 et préfixé avec numéro de page sur 3 chiffres
+                                    with open(f"img_temp/{model_id}/{image_name}", encoding="Latin-1") as img:
+                                        data = img.read()
+                                        md5hash_img = hashlib.md5((data).encode("utf-8")).hexdigest()
+                                        md5hash_img = f"{str(iPage+1).zfill(3)}_{md5hash_img}"
 
-                                # Taille du fichier image 
-                                size = (Path(f"uploads/{marque_eqpmt}/{model_id}/{image_name}")).stat().st_size
+                                    # SAUVEGARDER LA PAGE EN JPG dans dossier 'uploads'
+                                    image_name = f'{md5hash_img}.jpg'
+                                    pix.save(f"uploads/{marque_eqpmt}/{model_id}/{image_name}", "JPEG")
 
-                                # Created_at et Updated_at 
-                                created_at = dt.strftime('%Y-%m-%d %H:%M:%S')
-                                updated_at = None
+                                    # Taille du fichier image 
+                                    size = (Path(f"uploads/{marque_eqpmt}/{model_id}/{image_name}")).stat().st_size
 
-                                # Type mime des images :
-                                # print(mimetypes.guess_type(f"img_temp/{model_id}/{image_name}")) # -> image/jpeg
+                                    # Created_at et Updated_at 
+                                    created_at = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                    updated_at = None
 
-                                # Ajout du hash, de la taille, l'extension, le type mime et les dates dans la liste des données de l'image courante
-                                img_datas_row.extend([md5hash_img, 'jpg', 'image/jpeg', md5hash_img, size, created_at, updated_at])
+                                    # Type mime des images :
+                                    # print(mimetypes.guess_type(f"img_temp/{model_id}/{image_name}")) # -> image/jpeg
 
-                                # Copie de cette liste car sinon passée par référence
-                                datas_copy = img_datas_row.copy()
+                                    # Ajout du hash, de la taille, l'extension, le type mime et les dates dans la liste des données de l'image courante
+                                    img_datas_row.extend([md5hash_img, 'jpg', 'image/jpeg', md5hash_img, size, created_at, updated_at])
 
-                                # Ajout de la liste copiée dans la liste globale des données des images
-                                img_datas_rows.append(datas_copy)
+                                    # Copie de cette liste car sinon passée par référence
+                                    datas_copy = img_datas_row.copy()
 
-                                # Vidage de la liste de l'image courante
-                                img_datas_row.clear() 
+                                    # Ajout de la liste copiée dans la liste globale des données des images
+                                    img_datas_rows.append(datas_copy)
 
-                    # FIN DE LA BOUCLE SUR LES PAGES DU PDF
-                except Exception as Error:
+                                    # Vidage de la liste de l'image courante
+                                    img_datas_row.clear() 
 
-                    error_files.append(f'Erreur avec modèle {model_id} : {Error}')  
-                    print(f'Erreur avec modèle {model_id} : {Error}')
-                    continue
+                        # FIN DE LA BOUCLE SUR LES PAGES DU PDF
+                    except Exception as Error:
 
-                # FIN DU BLOC TRY SUR TRAITEMENT VIESSMANN
+                        error_files.append(f'Erreur avec modèle {model_id} : {Error}')  
+                        print(f'Erreur avec modèle {model_id} : {Error}')
+
+                        dfs_pdf = []
+
+                        continue
+
+                    # FIN DU BLOC TRY SUR TRAITEMENT VIESSMANN
+                # FIN DU TRAITEMENT VIESSMANN   
 
                 # CONCATENER LES DATAFRAMES DU PDF EN UNE SEULE
-                # if dfs_pdf != [] and filename not in error_files:
-                if dfs_pdf != []:
+                if dfs_pdf != [] and filename not in error_files:
                     dfs_pdf = pd.concat(dfs_pdf)
 
                     # CONVERTIR LA DATAFRAME GLOBALE DU PDF EN CSV
@@ -306,12 +314,13 @@ with mysql.connector.connect(**connection_params) as cnx:
                     with open(csv_pieces_filepath, "w", encoding="utf-8") as text:
                         text.write(csv_text)
 
-                # CONVERTIR LA LISTE DES DONNEES DES IMAGES du pdf courant EN CSV
-                csv_images_filepath = Path.cwd() / "csv_images" / f"{model_id}_img.csv"
+                    # CONVERTIR LA LISTE DES DONNEES DES IMAGES du pdf courant EN CSV
+                    csv_images_filepath = Path.cwd() / "csv_images" / f"{model_id}_img.csv"
 
-                with open(csv_images_filepath, 'w', newline='') as f:
-                    write = csv.writer(f)
-                    write.writerows(img_datas_rows)
+                    with open(csv_images_filepath, 'w', newline='') as f:
+                        write = csv.writer(f)
+                        write.writerows(img_datas_rows)
+
     # FIN DE LA BOUCLE SUR LES MODELES
 
     # RECUPERER LE NOMBRE DE FICHIERS CSV TRAITES
@@ -355,8 +364,6 @@ with mysql.connector.connect(**connection_params) as cnx:
 
     else:
         print('Aucun traitement effectué')
-
-# FIN DE LA CONNEXION A LA BDD
 
 # CONVERTIR LA LISTE DES FICHIERS 'ERREURS' EN CHAINE DE CARACTERE pour le fichier rapport
 error_files_txt = "\n- ".join(error_files)
