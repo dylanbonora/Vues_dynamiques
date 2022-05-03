@@ -1,4 +1,5 @@
 import csv
+import re
 import sys
 from msilib.schema import Error
 import shutil
@@ -162,7 +163,7 @@ with mysql.connector.connect(**connection_params) as cnx:
         # print(f'file datas {file_datas}')
 
         if file_datas == None:
-            print(f'Pas de vue éclatée trouvée pour le modèle {model_id}')
+            print(f'Pas de vue éclatée trouvée en BDD pour le modèle {model_id}')
             continue
 
         else:
@@ -294,7 +295,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                                     # LA PAGE EST UN SCHEMA
                                     schemas_to_jpg_and_datas()
 
-                            # FIN DE LA BOUCLE SUR LES PAGES DU PDF
+                            # FIN DE LA BOUCLE SUR LES PAGES VIESSMANN
                     # FIN DU TRAITEMENT VIESSMANN   
                 
                     # SI C'EST UNE VUE CHAPPEE
@@ -393,14 +394,98 @@ with mysql.connector.connect(**connection_params) as cnx:
                                             dfs_pdf.append(table.df)
                             else:
                                 continue
-                        # FIN DE LA BOUCLE SUR LES PAGES DU PDF
+                        # FIN DE LA BOUCLE SUR LES PAGES CHAPPEE
                         
                     # FIN DU TRAITEMENT CHAPPEE
+
+                    # SI C'EST UNE VUE SAUNIER
+                    if marque_eqpmt == 2:
+
+                        # BOUCLES SUR LES PAGES DU PDF
+                        for iPage in range(len(pages_pdf)):
+
+                            # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES 
+                            tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,800,565,45'], columns=['71,152,333'], pages=f'{iPage+1}')
+
+                            # BOUCLE SUR LA OU LES DATAFRAMES DE LA PAGE
+                            for table in tables:
+
+                                # Nettoyage, réarrangement des tableaux
+                                # (Si plus de 4 lignes, c'est un tableau, sinon schéma ou autres infos)
+                                if len(table.df) > 4:
+
+                                    # Si valeur 'Position' vide, on copie la valeur de 'Désignation'
+                                    for ligne,value in enumerate(table.df[0]): 
+                                        if value == '':
+                                            table.df[0][ligne] = table.df[1][ligne] 
+
+                                    # Si valeur 'Position' commence par 'S' ou 'A' et 8 caractères
+                                    # On supprime les 2 zéros finaux
+                                    table.df[0] = [value[:-2] if len(value) == 8 and (value[0] == 'S' or value[0] == 'A') else value for value in table.df[0]]
+
+                                    # Si valeur 'Position' 8 caractères et 1er caractère == 0
+                                    # On supprime le 1er et les 2 derniers zéros
+                                    table.df[0] = [value[1:-2] if (len(value) == 8 and value[0] == '0') else value for value in table.df[0]]
+
+                                    # Si valeur 'Position' 8 caractères et 1er caractère != 0
+                                    # On supprime les 2 derniers zéros
+                                    table.df[0] = [value[:-2] if (len(value) == 8 and value[0] != '0') else value for value in table.df[0]]
+
+                                    # On supprime les lignes sans Désignation (dûes à des Remarques sur 2 lignes)
+                                    for ligne,value in enumerate(table.df[1]): 
+                                        if ligne > 4 and value == '':
+                                            table.df.drop(ligne, inplace=True)
+
+                                    # Si 'Remplacé par...' dans colonne 'Remarque'
+                                    # On garde la nouvelle référence, donc ce qui suit 'Remplacé par '
+                                    table.df[3] = [value[13:] if 'Remplacé par' in value else 'NA' for value in table.df[3]]
+
+                                    # On copie la colonne 'Remarque' en colonne 7 pour 'Substitution'
+                                    table.df[6] = table.df[3]
+                                    
+                                    # On crée les colonnes 'GrpMat' et 'Quantite'
+                                    # avec Valeurs 'NA' pour meilleure lisibilité
+                                    table.df[3] = 'NA'
+                                    table.df[4] = 'NA'
+
+                                    # On crée les colonnes 'Page' et 'Substitution'
+                                    table.df[5] = iPage+1
+
+                                    # Ajouter colonne 'created_at' 
+                                    table.df[7] = dt.strftime('%Y-%m-%d %H:%M:%S')
+
+                                    # Ajouter colonne 'updated_at' 
+                                    table.df[8] = None
+
+                                    # Réordonner sinon 'Page' après 'Substitution'
+                                    table.df.sort_index(axis=1, inplace=True)
+
+                                    # On supprime les 5 premières lignes qui ne sont pas des données
+                                    table.df.drop([0,1,2,3,4], inplace=True)
+
+                                    # On remplace les virgules par des espaces dans 'Designation'
+                                    table.df[2] = table.df[2].str.replace(",", "")
+
+                                    # Insertion d'une colonne à la position 0, pour l'id du modele
+                                    table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                    # Insertion d'une colonne à la position 1, pour l'id du modele
+                                    table.df.insert(1, "model_id", model_id, allow_duplicates=False)
+
+                                    # On ajoute la dataframe à la liste des dataframes du pdf
+                                    dfs_pdf.append(table.df)
+                                
+                                # Si titre page 'Aide au diagnostic' ou 'Fonctionnement' ou 'basse tension' ou 'Schéma...', 
+                                # ce ne sont pas des schémas à traiter
+                                elif not any(re.findall('Aide|chéma|Fonc|basse', table.df[0][2])):
+
+                                    schemas_to_jpg_and_datas()
+
+                        # FIN DE LA BOUCLE SUR LES PAGES SAUNIER
 
                 except Exception as err:
                     if model_id not in error_files:
                         error_files.append(model_id)  
-                        print(f'Erreur avec modèle {model_id} : {Error}')
+                        print(f'Erreur avec modèle {model_id}')
                         print("".join(traceback.TracebackException.from_exception(err).format()))
 
                         dfs_pdf = []
