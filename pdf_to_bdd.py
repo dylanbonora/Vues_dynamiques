@@ -35,8 +35,8 @@ report_dir.mkdir(exist_ok=True)
 # LISTE QUI RECUPERERA LES FICHIERS QUI GENERENT DES ERREURS
 error_files = []
 
-# FONCTION DE CONVERSION DES SCHEMAS EN JPG
-def schemas_to_jpg():
+# FONCTION DE CONVERSION DES SCHEMAS EN JPG et liste des données
+def schemas_to_jpg_and_datas():
         # Liste qui récupérera les données des images 
     img_datas_row = ['', model_id, 'exploded_view_picture']
 
@@ -175,7 +175,7 @@ with mysql.connector.connect(**connection_params) as cnx:
             file_relpath = Path(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf')
 
             # Initialisation de l'objet qui récuperera les dataframes Chappee page par page
-            tables = None
+            # tables = None
 
             # Liste qui récupèrera les dataframes du pdf
             dfs_pdf = []
@@ -291,7 +291,7 @@ with mysql.connector.connect(**connection_params) as cnx:
 
                             else:
                                 # LA PAGE EST UN SCHEMA
-                                schemas_to_jpg()
+                                schemas_to_jpg_and_datas()
 
                         # FIN DE LA BOUCLE SUR LES PAGES DU PDF
                 # FIN DU TRAITEMENT VIESSMANN   
@@ -301,117 +301,95 @@ with mysql.connector.connect(**connection_params) as cnx:
 
                     # BOUCLES SUR LES PAGES DU PDF
                     for iPage, page in enumerate(pages_pdf):
-                        # Si autre Mise En Page que les 2 connues (MEP définie à iPage = 0)
-                        # (Tableau détécté mais autre MEP) on passe au pdf suivant
-                        if iPage == 1 and tables == None:
-                            break
+                        # Extraction de la 1ere page du pdf pour connaître son type de mise en page 
+                        # Et utiliser les paramètres d'extraction correspondants
+                        tables_mep = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', pages='1')
 
-                        else:
-                            # Extraction de la 1ere page du pdf pour connaître son type de mise en page 
-                            # Et utiliser les paramètres d'extraction correspondants
-                            tables_mep = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', pages='1')
+                        for table_mep in tables_mep:
 
-                            # Si pas de tableau détécté page 1 : autre MEP, on passe au pdf suivant
-                            if len(tables_mep) == 0:
-                                error_files.append(f'pdf avec autre mise en page : {model_id}')  # On ajoute le nom du pdf dans la liste error_files
-                                break
+                            # Si 5,6 ou 7 colonnes -> MEP1 : Tableaux avec colonne 'Substitution'
+                            if 5 <= len(table_mep.df.columns) <= 7:
+                                tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,400,0'], columns=['65,106,262,319,367'], pages=f'{iPage+1}')
 
+                            # Sinon si 2 ou 4 colonnes -> MEP2 : Tableaux de 4 colonnes sans 'Substitution'
+                            elif len(table_mep.df.columns) == 2 or len(table_mep.df.columns) == 4: 
+                                tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,580,58'], columns=['62,124,520'], pages=f'{iPage+1}')
+
+                            # Sinon si autre nb de colonnes détéctées -> autre MEP 
                             else:
+                                error_files.append(f'pdf avec autre mise en page : modele {model_id}, filename {filename}') 
+                                tables = None 
 
-                                for table_mep in tables_mep:
-
-                                    # Si 5,6 ou 7 colonnes -> MEP1 : Tableaux avec colonne 'Substitution'
-                                    if 5 <= len(table_mep.df.columns) <= 7:
-                                        tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,400,0'], columns=['65,106,262,319,367'], pages=f'{iPage+1}')
-
-                                    # Sinon si 2 ou 4 colonnes -> MEP2 : Tableaux de 4 colonnes sans 'Substitution'
-                                    elif len(table_mep.df.columns) == 2 or len(table_mep.df.columns) == 4: 
-                                        tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,580,58'], columns=['62,124,520'], pages=f'{iPage+1}')
-
-                                    # Sinon si autre nb de colonnes détéctées -> autre MEP 
-                                    else:
-                                        error_files.append(f'pdf avec autre mise en page : {model_id}')  
-
-                                if tables != None:
-                                    for table in tables:
-                                        if not table.df.empty:
-                                            # try:
-                                            # NETTOYAGE, REARRANGEMENT, AJOUT DE COLONNES,...
-
-                                            # Si virgule dans colonne 'Quantite' 3
-                                            # Garder ce qui précède la virgule
-                                            table.df[3] = [value[:(value.find(','))] if ',' in value else value for value in table.df[3]]
-                                            # On ajoute '1' pour les valeurs manquantes de 'Quantite'
-                                            table.df[3] = ['1' if value == '' else value for value in table.df[3]]
-
-                                            # Si valeur désignation décalée dans colonne 'Quantité'
-                                            # On la copie dans colonne 'Designation'
-                                            # Et on met '1' dans 'Quantite' 
-                                            for ligne,value in enumerate(table.df[3]): 
-                                                if len(value) > 3:
-                                                    table.df[2][ligne] += value
-                                                    table.df[3][ligne] = '1'
-
-                                            # Si pas de valeur dans colonne 'Référence' ou 'Réf. Référenc Description' 
-                                            # -> c'est soit une ligne de pied de page
-                                            # -> soit une ligne d'en tête 
-                                            # On supprime
-                                            for ligne,value in enumerate(table.df[1]): 
-                                                if value == '' or 'Référenc' in value:
-                                                    table.df.drop(ligne, inplace=True)
-
-                                            # On écrase la colonne 'Tarif' avec la colonne 'Quantite' 
-                                            table.df[4] = table.df[3]
-
-                                            # On remplace la colonne 'Quantite' par 'GrpMat'
-                                            # avec Valeurs 'NA' pour meilleure lisibilité
-                                            table.df[3] = 'NA'
-
-                                            # Si colonne 'Substitution' existe en col5 : copie en col7
-                                            # Et valeurs 'NA' si pas de valeur, pour meilleure lisibilité
-                                            # Puis on écrase col5 pour créer colonne 'Modele'
-                                            # Sinon création de col5 'Modele' et col7 'Substitution'
-                                            if 5 in table.df.columns:
-                                                table.df[6] = table.df[5]  
-                                                table.df[6] = ['NA' if value == '' else value for value in table.df[6]]
-                                                table.df[5] = iPage+1  
-                                            else:
-                                                table.df[5] = iPage+1  
-                                                table.df[6] = 'NA' 
-
-                                            # Ajouter colonne 'created_at' 
-                                            table.df[7] = dt.strftime('%Y-%m-%d %H:%M:%S')
-                                            # table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
-
-                                            # Ajouter colonne 'updated_at' 
-                                            table.df[8] = None
-                                            # table.df["updated_at"] = None
-
-                                            # Réordonner sinon 'Page' après 'Substitution'
-                                            table.df.sort_index(axis=1, inplace=True)
-
-                                            # Suppression des esapces superflus
-                                            table.df[2] = table.df[2].str.replace('  ','')
-
-                                            # Insertion d'une colonne à la position 0, pour piece id du modele
-                                            table.df.insert(0, "piece_ID", None, allow_duplicates=False)
-                                            # Insertion d'une colonne à la position 1, pour l'id du modele
-                                            table.df.insert(1, "model_id", model_id, allow_duplicates=False)
-
-                                            # On remplace les virgules par des espaces dans 'Designation'
-                                            table.df[2] = table.df[2].str.replace(",", "")
-                                
-                                            # On ajoute la dataframe à la liste des dataframes du pdf
-                                            dfs_pdf.append(table.df)
-                        
-                        # SI LA PAGE EST UN SCHéMA
+                        # Traitement
                         images_infos = page.get_image_info()
 
                         if images_infos != []:
                             # Si une image dans la page fait plus de 527, c'est une page de schéma
                             if any(img['width'] > 527 for img in images_infos):
 
-                                schemas_to_jpg()
+                                schemas_to_jpg_and_datas()
+
+                            # Si aucune image de la page ne dépasse 527 de large ou si aucune image ne fait 14 de large, c'est une page de tableau
+                            if not any((img['width'] > 527 or img['width'] == 14) for img in images_infos):
+                                if tables == None:
+                                    break
+                                else:
+                                    for table in tables:
+                                        # NETTOYAGE, REARRANGEMENT, AJOUT DE COLONNES,...
+                                        # Si virgule dans colonne 'Quantite' 3
+                                        # Garder ce qui précède la virgule
+                                        table.df[3] = [value[:(value.find(','))] if ',' in value else value for value in table.df[3]]
+                                        # On ajoute '1' pour les valeurs manquantes de 'Quantite'
+                                        table.df[3] = ['1' if value == '' else value for value in table.df[3]]
+                                        # Si valeur désignation décalée dans colonne 'Quantité'
+                                        # On la copie dans colonne 'Designation'
+                                        # Et on met '1' dans 'Quantite' 
+                                        for ligne,value in enumerate(table.df[3]): 
+                                            if len(value) > 3:
+                                                table.df[2][ligne] += value
+                                                table.df[3][ligne] = '1'
+                                        # Si pas de valeur dans colonne 'Référence' ou 'Réf. Référenc Description' 
+                                        # -> c'est soit une ligne de pied de page
+                                        # -> soit une ligne d'en tête 
+                                        # On supprime
+                                        for ligne,value in enumerate(table.df[1]): 
+                                            if value == '' or 'Référenc' in value:
+                                                table.df.drop(ligne, inplace=True)
+                                        # On écrase la colonne 'Tarif' avec la colonne 'Quantite' 
+                                        table.df[4] = table.df[3]
+                                        # On remplace la colonne 'Quantite' par 'GrpMat'
+                                        # avec Valeurs 'NA' pour meilleure lisibilité
+                                        table.df[3] = 'NA'
+                                        # Si colonne 'Substitution' existe en col5 : copie en col7
+                                        # Et valeurs 'NA' si pas de valeur, pour meilleure lisibilité
+                                        # Puis on écrase col5 pour créer colonne 'Modele'
+                                        # Sinon création de col5 'Modele' et col7 'Substitution'
+                                        if 5 in table.df.columns:
+                                            table.df[6] = table.df[5]  
+                                            table.df[6] = ['NA' if value == '' else value for value in table.df[6]]
+                                            table.df[5] = iPage+1  
+                                        else:
+                                            table.df[5] = iPage+1  
+                                            table.df[6] = 'NA' 
+                                        # Ajouter colonne 'created_at' 
+                                        table.df[7] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                        # table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                        # Ajouter colonne 'updated_at' 
+                                        table.df[8] = None
+                                        # table.df["updated_at"] = None
+                                        # Réordonner sinon 'Page' après 'Substitution'
+                                        table.df.sort_index(axis=1, inplace=True)
+                                        # Suppression des esapces superflus
+                                        table.df[2] = table.df[2].str.replace('  ','')
+                                        # Insertion d'une colonne à la position 0, pour piece id du modele
+                                        table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                        # Insertion d'une colonne à la position 1, pour l'id du modele
+                                        table.df.insert(1, "model_id", model_id, allow_duplicates=False)
+                                        # On remplace les virgules par des espaces dans 'Designation'
+                                        table.df[2] = table.df[2].str.replace(",", "")
+                            
+                                        # On ajoute la dataframe à la liste des dataframes du pdf
+                                        dfs_pdf.append(table.df)
                         else:
                             continue
                     # FIN DE LA BOUCLE SUR LES PAGES DU PDF
