@@ -5,6 +5,7 @@ import shutil
 import hashlib
 import camelot
 import mimetypes
+import traceback
 import pandas as pd 
 import mysql.connector
 from pathlib import Path
@@ -185,223 +186,224 @@ with mysql.connector.connect(**connection_params) as cnx:
 
             with fitz.open(file_relpath) as pages_pdf:
 
-                # try:
+                try:
 
-                # SI C'EST UNE VUE VIESSMANN
-                if marque_eqpmt == 4:
+                    # SI C'EST UNE VUE VIESSMANN
+                    if marque_eqpmt == 4:
 
-                    # BOUCLE SUR LES PAGES DU PDF
-                    for iPage in range(len(pages_pdf)):
+                        # BOUCLE SUR LES PAGES DU PDF
+                        for iPage in range(len(pages_pdf)):
 
-                        # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES
-                        tables = camelot.read_pdf(
-                            f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf',
-                            flavor="stream",
-                            table_areas=["0,736,552,62"],
-                            pages=f"{iPage+1}",
-                        )
+                            # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES
+                            tables = camelot.read_pdf(
+                                f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf',
+                                flavor="stream",
+                                table_areas=["0,736,552,62"],
+                                pages=f"{iPage+1}",
+                            )
 
-                        # BOUCLE SUR LA OU LES DATAFRAMES DE LA PAGE
-                        for table in tables:
+                            # BOUCLE SUR LA OU LES DATAFRAMES DE LA PAGE
+                            for table in tables:
 
-                            # Si plus de 3 colonnes, c'est une page de tableau
-                            if len(table.df.columns) > 3:
+                                # Si plus de 3 colonnes, c'est une page de tableau
+                                if len(table.df.columns) > 3:
 
-                                # NETTOYAGE, REARRANGEMENT DES TABLEAUX
+                                    # NETTOYAGE, REARRANGEMENT DES TABLEAUX
 
-                                # # SUPPRIMER LA COLONNE DES PRIX, colonne index 5
-                                table.df.drop(5, axis=1, inplace=True)
+                                    # # SUPPRIMER LA COLONNE DES PRIX, colonne index 5
+                                    table.df.drop(5, axis=1, inplace=True)
 
-                                # Suppression des esapces superflus colonne Designation
-                                table.df[2] = table.df[2].str.replace("  ", "")
+                                    # Suppression des esapces superflus colonne Designation
+                                    table.df[2] = table.df[2].str.replace("  ", "")
 
-                                # Insertion d'une colonne à la position 0, pour l'id du modele
-                                table.df.insert(0, "piece_ID", None, allow_duplicates=False)
-                                # Insertion d'une colonne à la position 1, pour l'id du modele
-                                table.df.insert(1, "model_id", model_id, allow_duplicates=False)
+                                    # Insertion d'une colonne à la position 0, pour l'id du modele
+                                    table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                    # Insertion d'une colonne à la position 1, pour l'id du modele
+                                    table.df.insert(1, "model_id", model_id, allow_duplicates=False)
 
-                                # # Renommer les index des colonnes (par défaut : entiers)
-                                table.df.rename(
-                                    columns={
-                                        0: "repere",
-                                        1: "reference",
-                                        2: "designation",
-                                        3: "grpMat",
-                                        4: "quantite",
-                                    },
-                                    inplace=True,
-                                )
+                                    # # Renommer les index des colonnes (par défaut : entiers)
+                                    table.df.rename(
+                                        columns={
+                                            0: "repere",
+                                            1: "reference",
+                                            2: "designation",
+                                            3: "grpMat",
+                                            4: "quantite",
+                                        },
+                                        inplace=True,
+                                    )
 
-                                # Ajouter colonne 'page'
-                                table.df["page"] = iPage + 1
+                                    # Ajouter colonne 'page'
+                                    table.df["page"] = iPage + 1
 
-                                # Ajouter colonne 'Substitution' vide (modèles Chappee)
-                                table.df["substitution"] = ''
+                                    # Ajouter colonne 'Substitution' vide (modèles Chappee)
+                                    table.df["substitution"] = ''
 
-                                # Ajouter colonne 'created_at' 
-                                table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                    # Ajouter colonne 'created_at' 
+                                    table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
 
-                                # Ajouter colonne 'updated_at' 
-                                table.df["updated_at"] = None
+                                    # Ajouter colonne 'updated_at' 
+                                    table.df["updated_at"] = None
 
-                                # SUPPRIMER LES LIGNES D'EN TETES
-                                # en vérifiant la longueur de la valeur dans la colonne 'Position'
-                                # si plus de 4 caractères ou égal à 1, c'est un en-tête
-                                for ligne, value in enumerate(table.df["repere"]):
+                                    # SUPPRIMER LES LIGNES D'EN TETES
+                                    # en vérifiant la longueur de la valeur dans la colonne 'Position'
+                                    # si plus de 4 caractères ou égal à 1, c'est un en-tête
+                                    for ligne, value in enumerate(table.df["repere"]):
 
-                                    if len(value) > 4 or len(value) == 1:
-                                        table.df.drop(ligne, inplace=True)
+                                        if len(value) > 4 or len(value) == 1:
+                                            table.df.drop(ligne, inplace=True)
 
-                                # On reset les index de ligne sinon bug
-                                table.df.reset_index(drop=True, inplace=True)
+                                    # On reset les index de ligne sinon bug
+                                    table.df.reset_index(drop=True, inplace=True)
 
-                                # CHERCHER LES LIGNES 'DOUBLES' (texte qui déborde sur une nouvelle ligne)
-                                # ET 'REMETTRE' le texte débordant dans la bonne ligne
-                                # Puis supprimer la ligne inutile
-                                for ligne, value in enumerate(table.df["repere"]):
+                                    # CHERCHER LES LIGNES 'DOUBLES' (texte qui déborde sur une nouvelle ligne)
+                                    # ET 'REMETTRE' le texte débordant dans la bonne ligne
+                                    # Puis supprimer la ligne inutile
+                                    for ligne, value in enumerate(table.df["repere"]):
 
-                                    if value == "":
-                                        if table.df["designation"][ligne] != "":
-                                            table.df["designation"][ligne - 1] += (
-                                                " " + table.df["designation"][ligne]
-                                            )
-                                        elif table.df["grpMat"][ligne] != "":
-                                            table.df["grpMat"][ligne - 1] += (
-                                                " " + table.df["grpMat"][ligne]
-                                            )
+                                        if value == "":
+                                            if table.df["designation"][ligne] != "":
+                                                table.df["designation"][ligne - 1] += (
+                                                    " " + table.df["designation"][ligne]
+                                                )
+                                            elif table.df["grpMat"][ligne] != "":
+                                                table.df["grpMat"][ligne - 1] += (
+                                                    " " + table.df["grpMat"][ligne]
+                                                )
 
-                                        # Supprimer la ligne contenant le texte débordant
-                                        table.df.drop(ligne, inplace=True)
+                                            # Supprimer la ligne contenant le texte débordant
+                                            table.df.drop(ligne, inplace=True)
 
-                                # On reset les index de ligne sinon bug
-                                table.df.reset_index(drop=True, inplace=True)
+                                    # On reset les index de ligne sinon bug
+                                    table.df.reset_index(drop=True, inplace=True)
 
-                                # Si valeurs GrpMat décalées dans colonne Designation (bug d'extraction)
-                                # Les récupérer et effacer dans Designation
-                                for ligne, value in enumerate(table.df["grpMat"]):
-                                    if value == "":
-                                        table.df["grpMat"][ligne] = (table.df["designation"][ligne])[-3:]
-                                        table.df["designation"][ligne] = (table.df["designation"][ligne])[:-3]
+                                    # Si valeurs GrpMat décalées dans colonne Designation (bug d'extraction)
+                                    # Les récupérer et effacer dans Designation
+                                    for ligne, value in enumerate(table.df["grpMat"]):
+                                        if value == "":
+                                            table.df["grpMat"][ligne] = (table.df["designation"][ligne])[-3:]
+                                            table.df["designation"][ligne] = (table.df["designation"][ligne])[:-3]
 
-                                # On remplace les virgules par des espaces dans 'Designation'
-                                table.df["designation"] = table.df["designation"].str.replace(",", "")
+                                    # On remplace les virgules par des espaces dans 'Designation'
+                                    table.df["designation"] = table.df["designation"].str.replace(",", "")
 
-                                # On ajoute la dataframe à la liste des dataframes du pdf
-                                dfs_pdf.append(table.df)
+                                    # On ajoute la dataframe à la liste des dataframes du pdf
+                                    dfs_pdf.append(table.df)
 
-                            else:
-                                # LA PAGE EST UN SCHEMA
-                                schemas_to_jpg_and_datas()
-
-                        # FIN DE LA BOUCLE SUR LES PAGES DU PDF
-                # FIN DU TRAITEMENT VIESSMANN   
-               
-                # SI C'EST UNE VUE CHAPPEE
-                if marque_eqpmt == 7:
-
-                    # BOUCLES SUR LES PAGES DU PDF
-                    for iPage, page in enumerate(pages_pdf):
-                        # Extraction de la 1ere page du pdf pour connaître son type de mise en page 
-                        # Et utiliser les paramètres d'extraction correspondants
-                        tables_mep = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', pages='1')
-
-                        for table_mep in tables_mep:
-
-                            # Si 5,6 ou 7 colonnes -> MEP1 : Tableaux avec colonne 'Substitution'
-                            if 5 <= len(table_mep.df.columns) <= 7:
-                                tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,400,0'], columns=['65,106,262,319,367'], pages=f'{iPage+1}')
-
-                            # Sinon si 2 ou 4 colonnes -> MEP2 : Tableaux de 4 colonnes sans 'Substitution'
-                            elif len(table_mep.df.columns) == 2 or len(table_mep.df.columns) == 4: 
-                                tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,580,58'], columns=['62,124,520'], pages=f'{iPage+1}')
-
-                            # Sinon si autre nb de colonnes détéctées -> autre MEP 
-                            else:
-                                error_files.append(f'pdf avec autre mise en page : modele {model_id}, filename {filename}') 
-                                tables = None 
-
-                        # Traitement
-                        images_infos = page.get_image_info()
-
-                        if images_infos != []:
-                            # Si une image dans la page fait plus de 527, c'est une page de schéma
-                            if any(img['width'] > 527 for img in images_infos):
-
-                                schemas_to_jpg_and_datas()
-
-                            # Si aucune image de la page ne dépasse 527 de large ou si aucune image ne fait 14 de large, c'est une page de tableau
-                            if not any((img['width'] > 527 or img['width'] == 14) for img in images_infos):
-                                if tables == None:
-                                    break
                                 else:
-                                    for table in tables:
-                                        # NETTOYAGE, REARRANGEMENT, AJOUT DE COLONNES,...
-                                        # Si virgule dans colonne 'Quantite' 3
-                                        # Garder ce qui précède la virgule
-                                        table.df[3] = [value[:(value.find(','))] if ',' in value else value for value in table.df[3]]
-                                        # On ajoute '1' pour les valeurs manquantes de 'Quantite'
-                                        table.df[3] = ['1' if value == '' else value for value in table.df[3]]
-                                        # Si valeur désignation décalée dans colonne 'Quantité'
-                                        # On la copie dans colonne 'Designation'
-                                        # Et on met '1' dans 'Quantite' 
-                                        for ligne,value in enumerate(table.df[3]): 
-                                            if len(value) > 3:
-                                                table.df[2][ligne] += value
-                                                table.df[3][ligne] = '1'
-                                        # Si pas de valeur dans colonne 'Référence' ou 'Réf. Référenc Description' 
-                                        # -> c'est soit une ligne de pied de page
-                                        # -> soit une ligne d'en tête 
-                                        # On supprime
-                                        for ligne,value in enumerate(table.df[1]): 
-                                            if value == '' or 'Référenc' in value:
-                                                table.df.drop(ligne, inplace=True)
-                                        # On écrase la colonne 'Tarif' avec la colonne 'Quantite' 
-                                        table.df[4] = table.df[3]
-                                        # On remplace la colonne 'Quantite' par 'GrpMat'
-                                        # avec Valeurs 'NA' pour meilleure lisibilité
-                                        table.df[3] = 'NA'
-                                        # Si colonne 'Substitution' existe en col5 : copie en col7
-                                        # Et valeurs 'NA' si pas de valeur, pour meilleure lisibilité
-                                        # Puis on écrase col5 pour créer colonne 'Modele'
-                                        # Sinon création de col5 'Modele' et col7 'Substitution'
-                                        if 5 in table.df.columns:
-                                            table.df[6] = table.df[5]  
-                                            table.df[6] = ['NA' if value == '' else value for value in table.df[6]]
-                                            table.df[5] = iPage+1  
-                                        else:
-                                            table.df[5] = iPage+1  
-                                            table.df[6] = 'NA' 
-                                        # Ajouter colonne 'created_at' 
-                                        table.df[7] = dt.strftime('%Y-%m-%d %H:%M:%S')
-                                        # table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
-                                        # Ajouter colonne 'updated_at' 
-                                        table.df[8] = None
-                                        # table.df["updated_at"] = None
-                                        # Réordonner sinon 'Page' après 'Substitution'
-                                        table.df.sort_index(axis=1, inplace=True)
-                                        # Suppression des esapces superflus
-                                        table.df[2] = table.df[2].str.replace('  ','')
-                                        # Insertion d'une colonne à la position 0, pour piece id du modele
-                                        table.df.insert(0, "piece_ID", None, allow_duplicates=False)
-                                        # Insertion d'une colonne à la position 1, pour l'id du modele
-                                        table.df.insert(1, "model_id", model_id, allow_duplicates=False)
-                                        # On remplace les virgules par des espaces dans 'Designation'
-                                        table.df[2] = table.df[2].str.replace(",", "")
-                            
-                                        # On ajoute la dataframe à la liste des dataframes du pdf
-                                        dfs_pdf.append(table.df)
-                        else:
-                            continue
-                    # FIN DE LA BOUCLE SUR LES PAGES DU PDF
-                    
-                # FIN DU TRAITEMENT CHAPPEE
+                                    # LA PAGE EST UN SCHEMA
+                                    schemas_to_jpg_and_datas()
 
-                # except Exception as err:
-                #     if model_id not in error_files:
-                #         error_files.append(model_id)  
-                #         print(f'Erreur avec modèle {model_id} : {Error}')
+                            # FIN DE LA BOUCLE SUR LES PAGES DU PDF
+                    # FIN DU TRAITEMENT VIESSMANN   
+                
+                    # SI C'EST UNE VUE CHAPPEE
+                    if marque_eqpmt == 7:
 
-                #         dfs_pdf = []
+                        # BOUCLES SUR LES PAGES DU PDF
+                        for iPage, page in enumerate(pages_pdf):
+                            # Extraction de la 1ere page du pdf pour connaître son type de mise en page 
+                            # Et utiliser les paramètres d'extraction correspondants
+                            tables_mep = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', pages='1')
+
+                            for table_mep in tables_mep:
+
+                                # Si 5,6 ou 7 colonnes -> MEP1 : Tableaux avec colonne 'Substitution'
+                                if 5 <= len(table_mep.df.columns) <= 7:
+                                    tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,400,0'], columns=['65,106,262,319,367'], pages=f'{iPage+1}')
+
+                                # Sinon si 2 ou 4 colonnes -> MEP2 : Tableaux de 4 colonnes sans 'Substitution'
+                                elif len(table_mep.df.columns) == 2 or len(table_mep.df.columns) == 4: 
+                                    tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,580,58'], columns=['62,124,520'], pages=f'{iPage+1}')
+
+                                # Sinon si autre nb de colonnes détéctées -> autre MEP 
+                                else:
+                                    error_files.append(f'pdf avec autre mise en page : modele {model_id}, filename {filename}') 
+                                    tables = None 
+
+                            # Traitement
+                            images_infos = page.get_image_info()
+
+                            if images_infos != []:
+                                # Si une image dans la page fait plus de 527, c'est une page de schéma
+                                if any(img['width'] > 527 for img in images_infos):
+
+                                    schemas_to_jpg_and_datas()
+
+                                # Si aucune image de la page ne dépasse 527 de large ou si aucune image ne fait 14 de large, c'est une page de tableau
+                                if not any((img['width'] > 527 or img['width'] == 14) for img in images_infos):
+                                    if tables == None:
+                                        break
+                                    else:
+                                        for table in tables:
+                                            # NETTOYAGE, REARRANGEMENT, AJOUT DE COLONNES,...
+                                            # Si virgule dans colonne 'Quantite' 3
+                                            # Garder ce qui précède la virgule
+                                            table.df[3] = [value[:(value.find(','))] if ',' in value else value for value in table.df[3]]
+                                            # On ajoute '1' pour les valeurs manquantes de 'Quantite'
+                                            table.df[3] = ['1' if value == '' else value for value in table.df[3]]
+                                            # Si valeur désignation décalée dans colonne 'Quantité'
+                                            # On la copie dans colonne 'Designation'
+                                            # Et on met '1' dans 'Quantite' 
+                                            for ligne,value in enumerate(table.df[3]): 
+                                                if len(value) > 3:
+                                                    table.df[2][ligne] += value
+                                                    table.df[3][ligne] = '1'
+                                            # Si pas de valeur dans colonne 'Référence' ou 'Réf. Référenc Description' 
+                                            # -> c'est soit une ligne de pied de page
+                                            # -> soit une ligne d'en tête 
+                                            # On supprime
+                                            for ligne,value in enumerate(table.df[1]): 
+                                                if value == '' or 'Référenc' in value:
+                                                    table.df.drop(ligne, inplace=True)
+                                            # On écrase la colonne 'Tarif' avec la colonne 'Quantite' 
+                                            table.df[4] = table.df[3]
+                                            # On remplace la colonne 'Quantite' par 'GrpMat'
+                                            # avec Valeurs 'NA' pour meilleure lisibilité
+                                            table.df[3] = 'NA'
+                                            # Si colonne 'Substitution' existe en col5 : copie en col7
+                                            # Et valeurs 'NA' si pas de valeur, pour meilleure lisibilité
+                                            # Puis on écrase col5 pour créer colonne 'Modele'
+                                            # Sinon création de col5 'Modele' et col7 'Substitution'
+                                            if 5 in table.df.columns:
+                                                table.df[6] = table.df[5]  
+                                                table.df[6] = ['NA' if value == '' else value for value in table.df[6]]
+                                                table.df[5] = iPage+1  
+                                            else:
+                                                table.df[5] = iPage+1  
+                                                table.df[6] = 'NA' 
+                                            # Ajouter colonne 'created_at' 
+                                            table.df[7] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                            # table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                            # Ajouter colonne 'updated_at' 
+                                            table.df[8] = None
+                                            # table.df["updated_at"] = None
+                                            # Réordonner sinon 'Page' après 'Substitution'
+                                            table.df.sort_index(axis=1, inplace=True)
+                                            # Suppression des esapces superflus
+                                            table.df[2] = table.df[2].str.replace('  ','')
+                                            # Insertion d'une colonne à la position 0, pour piece id du modele
+                                            table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                            # Insertion d'une colonne à la position 1, pour l'id du modele
+                                            table.df.insert(1, "model_id", model_id, allow_duplicates=False)
+                                            # On remplace les virgules par des espaces dans 'Designation'
+                                            table.df[2] = table.df[2].str.replace(",", "")
+                                
+                                            # On ajoute la dataframe à la liste des dataframes du pdf
+                                            dfs_pdf.append(table.df)
+                            else:
+                                continue
+                        # FIN DE LA BOUCLE SUR LES PAGES DU PDF
+                        
+                    # FIN DU TRAITEMENT CHAPPEE
+
+                except Exception as err:
+                    if model_id not in error_files:
+                        error_files.append(model_id)  
+                        print(f'Erreur avec modèle {model_id} : {Error}')
+                        print("".join(traceback.TracebackException.from_exception(err).format()))
+
+                        dfs_pdf = []
 
                 # CONCATENER LES DATAFRAMES DU PDF EN UNE SEULE
                 if dfs_pdf != [] and model_id not in error_files:
