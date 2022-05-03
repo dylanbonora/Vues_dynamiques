@@ -537,11 +537,15 @@ with mysql.connector.connect(**connection_params) as cnx:
 
         datas_pieces = pd.read_csv("csv_pieces_final.csv", header=None, dtype = {2: str})
 
+        nb_enrg = 0
+
         for i, row in datas_pieces.iterrows():
             query = 'INSERT INTO pieces VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
             cursor2.execute(query, tuple(row))
+            nb_enrg += cursor2.rowcount
                                             
-        print("Nombre d'insert de pieces executés' :", cursor2.rowcount)
+        print("Nombre d'insert de pieces executés' :", nb_enrg)
+        # print("Nombre d'insert de pieces executés' :", cursor2.rowcount)
 
         # CONCAT des csv images
         concat_csv("csv_images_final.csv",csv_images_list)
@@ -549,11 +553,14 @@ with mysql.connector.connect(**connection_params) as cnx:
         # ENVOI csv images concaténé en BDD
         datas_img = pd.read_csv("csv_images_final.csv", header=None)
 
+        nb_enrg = 0
         for i, row in datas_img.iterrows():
             query = 'INSERT INTO fichiers VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
             cursor2.execute(query, tuple(row))
-                                            
-        print("Nombre d'insert d'images executés' :", cursor2.rowcount)
+            nb_enrg += cursor2.rowcount
+
+        print("Nombre d'insert d'images executés' :", nb_enrg)
+        # print("Nombre d'insert d'images executés' :", cursor2.rowcount)
 
     else:
         print('Aucun traitement effectué')
