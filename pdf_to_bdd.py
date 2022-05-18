@@ -1,17 +1,22 @@
 import csv
+import os
 import re
 import sys
-from msilib.schema import Error
 import shutil
 import hashlib
-import camelot
-import mimetypes
+from urllib.parse import urlparse
+import camelot.io as camelot
 import traceback
+import numpy
 import pandas as pd 
 import mysql.connector
 from pathlib import Path
 from datetime import datetime
 import fitz  # pip install pymupdf
+from dotenv import load_dotenv # pip install python-dotenv
+
+if len(sys.argv) > 1:
+    models_ids_list = sys.argv[1:]
 
 # RECUPERE LA DATE ET L HEURE DU JOUR
 dt = datetime.now()
@@ -56,14 +61,14 @@ def schemas_to_jpg_and_datas():
 
     # SAUVEGARDER LA PAGE EN JPG dans dossier 'uploads'
     image_name = f'{md5hash_img}.jpg'
-    pix.save(f"uploads/{marque_eqpmt}/{model_id}/{image_name}", "JPEG")
+    pix.save(f"../uploads/{marque_eqpmt}/{model_id}/{image_name}", "JPEG")
 
     # Taille du fichier image 
-    size = (Path(f"uploads/{marque_eqpmt}/{model_id}/{image_name}")).stat().st_size
+    size = (Path(f"../uploads/{marque_eqpmt}/{model_id}/{image_name}")).stat().st_size
 
     # Created_at et Updated_at 
     created_at = dt.strftime('%Y-%m-%d %H:%M:%S')
-    updated_at = None
+    updated_at = dt.strftime('%Y-%m-%d %H:%M:%S')
 
     # Type mime des images :
     # print(mimetypes.guess_type(f"img_temp/{model_id}/{image_name}")) # -> image/jpeg
@@ -80,12 +85,18 @@ def schemas_to_jpg_and_datas():
     # Vidage de la liste de l'image courante
     img_datas_row.clear() 
 
+# On récupére l'url de la BDD depuis le .env
+load_dotenv(dotenv_path='../.env')
+database_url = os.getenv('DATABASE_URL')
+# On parse l'url de la BDD
+bdd = urlparse(database_url)
 # Params de connexion à la BDD
 connection_params = {
-    'host': "localhost",
-    'user': "root",
-    'password': "",
-    'database': "vues_dynamiques",
+    'host': bdd.hostname,
+    'port': bdd.port,
+    'user': bdd.username,
+    'password': bdd.password,
+    'database': bdd.path[1:]
 }
 
 # try:
@@ -95,61 +106,61 @@ connection_params = {
 with mysql.connector.connect(**connection_params) as cnx:
     cnx.autocommit = True
 
-    def input_ids():
-        models_ids_list = list(map(str, input("ID du ou des modèles (séparés par des espaces): ").split()))
-        return models_ids_list
+    # def input_ids():
+    #     models_ids_list = list(map(str, input("ID du ou des modèles (séparés par des espaces): ").split()))
+    #     return models_ids_list
 
-    def check_digits():
-        is_all_digits = all([val.isdigit() for val in models_ids_list])
-        return is_all_digits
+    # def check_digits():
+    #     is_all_digits = all([val.isdigit() for val in models_ids_list])
+    #     return is_all_digits
 
-    models_ids_list = input_ids()
-    is_all_digits = check_digits()
+    # models_ids_list = input_ids()
+    # is_all_digits = check_digits()
 
-    while not is_all_digits:
-        print('\n Erreur. Entrez uniquement des nombres')
-        models_ids_list = input_ids()
-        is_all_digits = check_digits()
+    # while not is_all_digits:
+    #     print('\n Erreur. Entrez uniquement des nombres')
+    #     models_ids_list = input_ids()
+    #     is_all_digits = check_digits()
 
     # BOUCLE SUR LES MODELES
     for model_id in models_ids_list:
 
         # VERIFIER SI DEJA DANS TABLE PIECES 
-        query = "SELECT piece_ID FROM pieces \
-                    WHERE model_id = %s" % model_id
+        query = "SELECT id FROM pieces_modeles \
+                    WHERE modeles_id = %s" % model_id
         cursor = cnx.cursor(buffered=True)
         cursor.execute(query)            
         res = cursor.fetchmany(10)
-        # print('10 piece_ID from pieces ', res)
+        # print('10 id from pieces_modeles ', res)
 
         # SI MODEL_ID DEJA TRAITé
         if res != []:
 
-            # On demande si c'est un Update ou une erreur
-            def ask_update():
-                is_Maj = input(f"Le modèle {model_id} existe déjà dans la table des pièces \n Tapez 'O' pour mettre à jour (Attention, ceci écrasera les données précédentes) \n Sinon tapez 'N' : ")
-                return is_Maj
+            # # On demande si c'est un Update ou une erreur
+            # def ask_update():
+            #     is_Maj = input(f"Le modèle {model_id} existe déjà dans la table des pièces \n Tapez 'O' pour mettre à jour (Attention, ceci écrasera les données précédentes) \n Sinon tapez 'N' : ")
+            #     return is_Maj
 
-            is_update = ask_update()
+            # is_update = ask_update()
 
-            while not (is_update.lower() == 'o' or is_update.lower() == 'n'):
-                print('\n Erreur. Entrez "O" ou "N"')
-                is_update = ask_update()
+            # while not (is_update.lower() == 'o' or is_update.lower() == 'n'):
+            #     print('\n Erreur. Entrez "O" ou "N"')
+            #     is_update = ask_update()
 
-            # Si erreur : on passe au modele suivant ou fin de script
-            if is_update.lower() == 'n':
-                print("OK pas de MAJ")
-                continue
-            # Si Update : On supprime les anciennes données du modele 
-            elif is_update.lower() == 'o':
-                print("OK pour MAJ")
-                
-                query = "DELETE FROM pieces WHERE model_id = %s" % model_id
-                cursor.execute(query)  
+            # # Si erreur : on passe au modele suivant ou fin de script
+            # if is_update.lower() == 'n':
+            #     print("OK pas de MAJ")
+            #     continue
+            # # Si Update : On supprime les anciennes données du modele 
+            # elif is_update.lower() == 'o':
+            #     print("OK pour MAJ")
 
-                query = "DELETE FROM fichiers\
-                WHERE type = 'exploded_view_picture' AND model_id = %s" % model_id 
-                cursor.execute(query)  
+            query = "DELETE FROM pieces_modeles WHERE modeles_id = %s" % model_id
+            cursor.execute(query)  
+
+            query = "DELETE FROM fichiers\
+            WHERE type = 'exploded_view_picture' AND model_id = %s" % model_id 
+            cursor.execute(query)  
 
         # SI PAS DEJA DANS TABLE PIECES, ON TRAITE
 
@@ -174,7 +185,7 @@ with mysql.connector.connect(**connection_params) as cnx:
             
             marque_eqpmt = file_datas[0]
             filename = file_datas[1]
-            file_relpath = Path(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf')
+            file_relpath = Path(f'../uploads/{marque_eqpmt}/{model_id}/{filename}.pdf')
 
             # Initialisation de l'objet qui récuperera les dataframes Chappee page par page
             # tables = None
@@ -197,7 +208,7 @@ with mysql.connector.connect(**connection_params) as cnx:
 
                             # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES
                             tables = camelot.read_pdf(
-                                f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf',
+                                f'../uploads/{marque_eqpmt}/{model_id}/{filename}.pdf',
                                 flavor="stream",
                                 table_areas=["0,736,552,62"],
                                 pages=f"{iPage+1}",
@@ -218,7 +229,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                                     table.df[2] = table.df[2].str.replace("  ", "")
 
                                     # Insertion d'une colonne à la position 0, pour l'id du modele
-                                    table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                    table.df.insert(0, "id", None, allow_duplicates=False)
                                     # Insertion d'une colonne à la position 1, pour l'id du modele
                                     table.df.insert(1, "model_id", model_id, allow_duplicates=False)
 
@@ -244,7 +255,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                                     table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
 
                                     # Ajouter colonne 'updated_at' 
-                                    table.df["updated_at"] = None
+                                    table.df["updated_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
 
                                     # SUPPRIMER LES LIGNES D'EN TETES
                                     # en vérifiant la longueur de la valeur dans la colonne 'Position'
@@ -264,11 +275,11 @@ with mysql.connector.connect(**connection_params) as cnx:
 
                                         if value == "":
                                             if table.df["designation"][ligne] != "":
-                                                table.df["designation"][ligne - 1] += (
+                                                table.df.at[ligne - 1, "designation"] += (
                                                     " " + table.df["designation"][ligne]
                                                 )
                                             elif table.df["grpMat"][ligne] != "":
-                                                table.df["grpMat"][ligne - 1] += (
+                                                table.df.at[ligne - 1, "grpMat"] += (
                                                     " " + table.df["grpMat"][ligne]
                                                 )
 
@@ -282,8 +293,8 @@ with mysql.connector.connect(**connection_params) as cnx:
                                     # Les récupérer et effacer dans Designation
                                     for ligne, value in enumerate(table.df["grpMat"]):
                                         if value == "":
-                                            table.df["grpMat"][ligne] = (table.df["designation"][ligne])[-3:]
-                                            table.df["designation"][ligne] = (table.df["designation"][ligne])[:-3]
+                                            table.df.at[ligne, "grpMat"] = (table.df["designation"][ligne])[-3:]
+                                            table.df.at[ligne, "designation"] = (table.df["designation"][ligne])[:-3]
 
                                     # On remplace les virgules par des espaces dans 'Designation'
                                     table.df["designation"] = table.df["designation"].str.replace(",", "")
@@ -303,7 +314,7 @@ with mysql.connector.connect(**connection_params) as cnx:
 
                         # Extraction de la 1ere page du pdf pour connaître son type de mise en page 
                         # Et utiliser les paramètres d'extraction correspondants
-                        tables_mep = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', pages='1')
+                        tables_mep = camelot.read_pdf(f'../uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', pages='1')
 
                         # BOUCLES SUR LES PAGES DU PDF
                         for iPage, page in enumerate(pages_pdf):
@@ -312,11 +323,11 @@ with mysql.connector.connect(**connection_params) as cnx:
 
                                 # Si 5,6 ou 7 colonnes -> MEP1 : Tableaux avec colonne 'Substitution'
                                 if 5 <= len(table_mep.df.columns) <= 7:
-                                    tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,400,0'], columns=['65,106,262,319,367'], pages=f'{iPage+1}')
+                                    tables = camelot.read_pdf(f'../uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,400,0'], columns=['65,106,262,319,367'], pages=f'{iPage+1}')
 
                                 # Sinon si 2 ou 4 colonnes -> MEP2 : Tableaux de 4 colonnes sans 'Substitution'
                                 elif len(table_mep.df.columns) == 2 or len(table_mep.df.columns) == 4: 
-                                    tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,580,58'], columns=['62,124,520'], pages=f'{iPage+1}')
+                                    tables = camelot.read_pdf(f'../uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,580,58'], columns=['62,124,520'], pages=f'{iPage+1}')
 
                                 # Sinon si autre nb de colonnes détéctées -> autre MEP 
                                 else:
@@ -362,7 +373,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                                             table.df[4] = table.df[3]
                                             # On remplace la colonne 'Quantite' par 'GrpMat'
                                             # avec Valeurs 'NA' pour meilleure lisibilité
-                                            table.df[3] = 'NA'
+                                            table.df[3] = ''
                                             # Si colonne 'Substitution' existe en col5 : copie en col6
                                             # Et valeurs 'NA' si pas de valeur, pour meilleure lisibilité
                                             # Puis on écrase col5 pour créer colonne 'page'
@@ -378,14 +389,14 @@ with mysql.connector.connect(**connection_params) as cnx:
                                             table.df[7] = dt.strftime('%Y-%m-%d %H:%M:%S')
                                             # table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
                                             # Ajouter colonne 'updated_at' 
-                                            table.df[8] = None
+                                            table.df[8] = dt.strftime('%Y-%m-%d %H:%M:%S')
                                             # table.df["updated_at"] = None
                                             # Réordonner sinon 'Page' après 'Substitution'
                                             table.df.sort_index(axis=1, inplace=True)
                                             # Suppression des esapces superflus
                                             table.df[2] = table.df[2].str.replace('  ','')
                                             # Insertion d'une colonne à la position 0, pour piece id du modele
-                                            table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                            table.df.insert(0, "id", None, allow_duplicates=False)
                                             # Insertion d'une colonne à la position 1, pour l'id du modele
                                             table.df.insert(1, "model_id", model_id, allow_duplicates=False)
                                             # On remplace les virgules par des espaces dans 'Designation'
@@ -404,7 +415,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                         for iPage in range(len(pages_pdf)):
 
                             # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES 
-                            tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,800,565,45'], columns=['71,152,333'], pages=f'{iPage+1}')
+                            tables = camelot.read_pdf(f'../uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,800,565,45'], columns=['71,152,333'], pages=f'{iPage+1}')
 
                             # BOUCLE SUR LA OU LES DATAFRAMES DE LA PAGE
                             for table in tables:
@@ -454,7 +465,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                                     table.df[7] = dt.strftime('%Y-%m-%d %H:%M:%S')
 
                                     # Ajouter colonne 'updated_at' 
-                                    table.df[8] = None
+                                    table.df[8] = dt.strftime('%Y-%m-%d %H:%M:%S')
 
                                     # Réordonner sinon 'Page' après 'Substitution'
                                     table.df.sort_index(axis=1, inplace=True)
@@ -466,7 +477,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                                     table.df[2] = table.df[2].str.replace(",", "")
 
                                     # Insertion d'une colonne à la position 0, pour l'id du modele
-                                    table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                    table.df.insert(0, "id", None, allow_duplicates=False)
                                     # Insertion d'une colonne à la position 1, pour l'id du modele
                                     table.df.insert(1, "model_id", model_id, allow_duplicates=False)
 
@@ -494,7 +505,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                                 # Si aucune image de la page ne dépasse 354 de haut, c'est une page de tableau
                                 if not any(img['height'] > 354 for img in images_infos):
 
-                                    tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,400,0'], columns=['65,106,262,319,367'], pages=f'{iPage+1}')
+                                    tables = camelot.read_pdf(f'../uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,755,400,0'], columns=['65,106,262,319,367'], pages=f'{iPage+1}')
 
                                     for table in tables:
                                         # NETTOYAGE, REARRANGEMENT, AJOUT DE COLONNES,...
@@ -524,29 +535,31 @@ with mysql.connector.connect(**connection_params) as cnx:
                                         table.df[4] = table.df[3]
                                         # On remplace la colonne 'Quantite' par 'GrpMat'
                                         # avec Valeurs 'NA' pour meilleure lisibilité
-                                        table.df[3] = 'NA'
+                                        table.df[3] = 0
                                         # Si colonne 'Substitution' existe en col5 : copie en col6
                                         # Et valeurs 'NA' si pas de valeur, pour meilleure lisibilité
                                         # Puis on écrase col5 pour créer colonne 'page'
                                         # Sinon création de col5 'page' et col6 'Substitution'
                                         if 5 in table.df.columns:
                                             table.df[6] = table.df[5]  
-                                            table.df[6] = ['NA' if value == '' else value for value in table.df[6]]
+                                            table.df[6] = [0 if value == '' else value for value in table.df[6]]
                                             table.df[5] = iPage+1  
                                         else:
                                             table.df[5] = iPage+1  
-                                            table.df[6] = 'NA' 
+                                            table.df[6] = 0
                                         # Ajouter colonne 'created_at' 
                                         table.df[7] = dt.strftime('%Y-%m-%d %H:%M:%S')
                                         # table.df["created_at"] = dt.strftime('%Y-%m-%d %H:%M:%S')
                                         # Ajouter colonne 'updated_at' 
-                                        table.df[8] = None
+                                        table.df[8] = dt.strftime('%Y-%m-%d %H:%M:%S')
                                         # Réordonner sinon 'Page' après 'Substitution'
                                         table.df.sort_index(axis=1, inplace=True)
+                                        # Suppression de la virgule dans la colonne 'réf.'
+                                        table.df[0] = table.df[0].str.replace(",", " ")
                                         # Suppression des esapces superflus
                                         table.df[2] = table.df[2].str.replace('  ','')
                                         # Insertion d'une colonne à la position 0, pour piece id du modele
-                                        table.df.insert(0, "piece_ID", None, allow_duplicates=False)
+                                        table.df.insert(0, "id", None, allow_duplicates=False)
                                         # Insertion d'une colonne à la position 1, pour l'id du modele
                                         table.df.insert(1, "model_id", model_id, allow_duplicates=False)
                                         # On remplace les virgules par des espaces dans 'Designation'
@@ -616,6 +629,7 @@ with mysql.connector.connect(**connection_params) as cnx:
         # Fonction pour concaténer les listes de csv
         def concat_csv(csv_filename, csv_list):
             with open(csv_filename, "w", encoding="utf-8") as outfile:
+                # for fname in csv_list:
                 for i, fname in enumerate(csv_list):
                     with open(fname, "r", encoding="utf-8") as infile:
                         shutil.copyfileobj(infile, outfile)
@@ -623,20 +637,28 @@ with mysql.connector.connect(**connection_params) as cnx:
         # CONCAT des csv pieces
         concat_csv("csv_pieces_final.csv",csv_pieces_list)
 
+        # Fonction pour remplacer les valeurs NA par None
+        def na_to_none(*idx_col_list):
+            for idx_col in idx_col_list:
+                if pd.isna(row[idx_col]):
+                    row[idx_col] = None
+
       # ENVOI csv pièces concaténé en BDD
         cursor2 = cnx.cursor(prepared=True)
 
-        datas_pieces = pd.read_csv("csv_pieces_final.csv", header=None, dtype = {2: str})
+        datas_pieces = pd.read_csv("csv_pieces_final.csv", header=None, dtype = {2: str, 5: str})
 
         nb_enrg = 0
-
         for i, row in datas_pieces.iterrows():
-            query = 'INSERT INTO pieces VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
+            query = 'INSERT INTO pieces_modeles VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'
+
+            # Si on est dans une marque avec une colonne 2,5,6 ou 8 dont la valeur est manquante (NA) on la met à None
+            na_to_none(2,5,6,8)
+
             cursor2.execute(query, tuple(row))
             nb_enrg += cursor2.rowcount
                                             
-        print("Nombre d'insert de pieces executés' :", nb_enrg)
-        # print("Nombre d'insert de pieces executés' :", cursor2.rowcount)
+        print("Nombre d'insert de pieces executés :", nb_enrg)
 
         # CONCAT des csv images
         concat_csv("csv_images_final.csv",csv_images_list)
@@ -650,8 +672,7 @@ with mysql.connector.connect(**connection_params) as cnx:
             cursor2.execute(query, tuple(row))
             nb_enrg += cursor2.rowcount
 
-        print("Nombre d'insert d'images executés' :", nb_enrg)
-        # print("Nombre d'insert d'images executés' :", cursor2.rowcount)
+        print("Nombre d'insert d'images executés :", nb_enrg)
 
     else:
         print('Aucun traitement effectué')
@@ -684,11 +705,13 @@ Fichiers non traites :
 # SUPPRESSION DES DOSSIERS TEMPORAIRES
 shutil.rmtree(csv_pieces_dir, ignore_errors=True)  # Supprimer le dossier csv_pieces
 shutil.rmtree(csv_images_dir, ignore_errors=True)  # Supprimer le dossier csv_images
-shutil.rmtree(imgTemp_dir, ignore_errors=True)  # Supprimer les sous-dossiers img_temp 
+shutil.rmtree(imgTemp_dir, ignore_errors=True)  # Supprimer les sous-dossiers img_temp
+
+# os.remove("csv_pieces_final.csv")  # Supprimer le fichier csv_pieces_final
+# os.remove("csv_images_final.csv")  # Supprimer le fichier csv_images_final
 
 # # Calcul du temps de traitement :
 print("*************************")
 time_elapsed = datetime.now() - start_time
 print(f"Temps de traitement : (hh:mm:ss.ms)  {time_elapsed}")
-
 
