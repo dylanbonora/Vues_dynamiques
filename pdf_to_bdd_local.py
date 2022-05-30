@@ -9,6 +9,7 @@ import camelot
 import mimetypes
 import traceback
 import pandas as pd 
+from PIL import Image
 import mysql.connector
 from pathlib import Path
 from datetime import datetime
@@ -39,14 +40,10 @@ report_dir.mkdir(exist_ok=True)
 error_files = []
 
 # FONCTION DE CONVERSION DES SCHEMAS EN JPG et liste des données
+# CAS IMAGES AVEC TRANSPARENCE
 def schemas_to_jpg_and_datas():
 
-    # Sauvegarder la page en jpg dans dossier temporaire
-    page = pages_pdf.load_page(iPage)  
-    zoom = 4    # zoom factor
-    pix = page.get_pixmap(matrix = fitz.Matrix(zoom, zoom))                    
     image_name = f"{str(iPage+1).zfill(3)}_{filename}.jpg"
-    pix.save(f"img_temp/{model_id}/{image_name}", "JPEG")
 
     # Hashage du fichier image avec algo md5 et préfixé avec numéro de page sur 3 chiffres
     with open(f"img_temp/{model_id}/{image_name}", encoding="Latin-1") as img:
@@ -56,7 +53,12 @@ def schemas_to_jpg_and_datas():
 
     # SAUVEGARDER LA PAGE EN JPG dans dossier 'uploads'
     image_name = f'{md5hash_img}.jpg'
-    pix.save(f"uploads/{marque_eqpmt}/{model_id}/{image_name}", "JPEG")
+
+    if type(image) == bytes:
+        with open(f"uploads/{marque_eqpmt}/{model_id}/{image_name}", "wb") as imgout:
+            imgout.write(image)
+    else:
+        cv2.imwrite(f"uploads/{marque_eqpmt}/{model_id}/{image_name}", crop_pix)
 
     # Taille du fichier image 
     size = (Path(f"uploads/{marque_eqpmt}/{model_id}/{image_name}")).stat().st_size
@@ -291,52 +293,23 @@ with mysql.connector.connect(**connection_params) as cnx:
                                 else:
                                     # LA PAGE EST UN SCHEMA
 
-                                    img_datas_row = ['', model_id, 'exploded_view_picture']
-
-                                    # On convertit la page en image et sauvegarde
+                                    # On convertit la page en image et sauvegarde ds temp
                                     page = pages_pdf.load_page(iPage)  
                                     zoom = 4    # zoom factor for better resolution
                                     pix = page.get_pixmap(matrix = fitz.Matrix(zoom, zoom))                    
                                     image_name = f"{str(iPage+1).zfill(3)}_{filename}.jpg"
                                     pix.save(f"img_temp/{model_id}/{image_name}", "JPEG")
 
-                                    # On recadre l'image et on sauvegarde
+                                    # On recadre l'image et on sauvegarde dans temp
                                     # crop_img = img[y1:y2, x1:x2]
                                     pix = cv2.imread(f"img_temp/{model_id}/{image_name}")
-                                    crop_pix = pix[512:2920, 192:2184]
+                                    crop_pix = pix[512:3000, 192:2184]
                                     cv2.imwrite(f"img_temp/{model_id}/{image_name}", crop_pix)
 
-                                    # Hashage du fichier image avec algo md5 et préfixé avec numéro de page sur 3 chiffres
-                                    with open(f"img_temp/{model_id}/{image_name}", encoding="Latin-1") as img:
-                                        data = img.read()
-                                        md5hash_img = hashlib.md5((data).encode("utf-8")).hexdigest()
-                                        md5hash_img = f"{str(iPage+1).zfill(3)}_{md5hash_img}"
-
-                                    # SAUVEGARDER LA PAGE EN JPG dans dossier 'uploads'
-                                    image_name = f'{md5hash_img}.jpg'
-                                    cv2.imwrite(f"uploads/{marque_eqpmt}/{model_id}/{image_name}", crop_pix)
-
-                                    # Taille du fichier image 
-                                    size = (Path(f"uploads/{marque_eqpmt}/{model_id}/{image_name}")).stat().st_size
-
-                                    # Created_at et Updated_at 
-                                    created_at = dt.strftime('%Y-%m-%d %H:%M:%S')
-                                    updated_at = dt.strftime('%Y-%m-%d %H:%M:%S')
-
-                                    # Type mime des images :
-                                    # print(mimetypes.guess_type(f"img_temp/{model_id}/{image_name}")) # -> image/jpeg
-
-                                    # Ajout du hash, de la taille, l'extension, le type mime et les dates dans la liste des données de l'image courante
-                                    img_datas_row.extend([md5hash_img, 'jpg', 'image/jpeg', md5hash_img, size, created_at, updated_at])
-
-                                    # Copie de cette liste car sinon passée par référence
-                                    datas_copy = img_datas_row.copy()
-
-                                    # Ajout de la liste copiée dans la liste globale des données des images
-                                    img_datas_rows.append(datas_copy)
-
-                                    # Vidage de la liste de l'image courante
-                                    img_datas_row.clear() 
+                                    # On hashe, on sauveagrde dans uploads
+                                    # et on crée les données pour la bdd
+                                    image = crop_pix
+                                    schemas_to_jpg_and_datas()
 
                         # FIN DE LA BOUCLE SUR LES PAGES VIESSMANN
                     # FIN DU TRAITEMENT VIESSMANN   
@@ -373,7 +346,19 @@ with mysql.connector.connect(**connection_params) as cnx:
                                 # Si une image dans la page fait plus de 527, c'est une page de schéma
                                 if any(img['width'] > 527 for img in images_infos):
 
-                                    schemas_to_jpg_and_datas()
+                                    image_name = f"{str(iPage+1).zfill(3)}_{filename}.jpg"
+
+                                    list_img = page.get_images()
+                                    for i,img in enumerate(list_img):
+                                        # img[0] renvoie le xref  de l'image, un entier, nécessaire à son extraction
+
+                                        if img[2] > 527: # img[2] largeur de l'img -> c'est un schéma
+                                            data_img = pages_pdf.extract_image(img[0])
+                                            image = data_img["image"]
+                                            with open(f"img_temp/{model_id}/{image_name}", "wb") as imgout:
+                                                imgout.write(image)
+
+                                            schemas_to_jpg_and_datas()
 
                                 # Si aucune image de la page ne dépasse 527 de large ou si aucune image ne fait 14 de large, c'est une page de tableau
                                 if not any((img['width'] > 527 or img['width'] == 14) for img in images_infos):
@@ -444,7 +429,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                     if marque_eqpmt == 2:
 
                         # BOUCLES SUR LES PAGES DU PDF
-                        for iPage in range(len(pages_pdf)):
+                        for iPage, page in enumerate(pages_pdf):
 
                             # CONVERSION DE LA PAGE EN COURS EN LISTE DE DATAFRAMES 
                             tables = camelot.read_pdf(f'uploads/{marque_eqpmt}/{model_id}/{filename}.pdf', flavor='stream', table_areas=['0,800,565,45'], columns=['71,152,333'], pages=f'{iPage+1}')
@@ -520,7 +505,20 @@ with mysql.connector.connect(**connection_params) as cnx:
                                 # ce ne sont pas des schémas à traiter
                                 elif not any(re.findall('Aide|chéma|Fonc|basse', table.df[0][2])):
 
-                                    schemas_to_jpg_and_datas()
+                                    # schemas_to_jpg_and_datas()
+                                    image_name = f"{str(iPage+1).zfill(3)}_{filename}.jpg"
+
+                                    list_img = page.get_images()
+                                    for i,img in enumerate(list_img):
+                                        # img[0] renvoie le xref  de l'image, un entier, nécessaire à son extraction
+
+                                        if img[3] > 256: # img[3] hauteur de l'img -> c'est un schéma
+                                            data_img = pages_pdf.extract_image(img[0])
+                                            image = data_img["image"]
+                                            with open(f"img_temp/{model_id}/{image_name}", "wb") as imgout:
+                                                imgout.write(image)
+
+                                            schemas_to_jpg_and_datas()
                 
                         # FIN DE LA BOUCLE SUR LES PAGES SAUNIER
 
@@ -615,45 +613,18 @@ with mysql.connector.connect(**connection_params) as cnx:
 
                                     list_img = page.get_images()
                                     for i,img in enumerate(list_img):
+                                        # img[0] renvoie le xref  de l'image, un entier, nécessaire à son extraction
+
                                         # Spécifique à De Dietrich
                                         if img[3] > 354: # img[3] hauteur de l'img -> c'est un schéma
 
                                             data_img = pages_pdf.extract_image(img[0])
+                                            image = data_img['image']
                                             with open(f"img_temp/{model_id}/{image_name}", "wb") as imgout:
-                                                imgout.write(data_img["image"])
+                                                imgout.write(image)
 
-                                    # Hashage du fichier image avec algo md5 et préfixé avec numéro de page sur 3 chiffres
-                                    with open(f"img_temp/{model_id}/{image_name}", encoding="Latin-1") as img:
-                                        data = img.read()
-                                        md5hash_img = hashlib.md5((data).encode("utf-8")).hexdigest()
-                                        md5hash_img = f"{str(iPage+1).zfill(3)}_{md5hash_img}"
+                                            schemas_to_jpg_and_datas()
 
-                                    # SAUVEGARDER LA PAGE EN JPG dans dossier 'uploads'
-                                    image_name = f'{md5hash_img}.jpg'
-                                    with open(f"uploads/{marque_eqpmt}/{model_id}/{image_name}", "wb") as img:
-                                        img.write(data_img["image"])
-
-                                    # Taille du fichier image 
-                                    size = (Path(f"uploads/{marque_eqpmt}/{model_id}/{image_name}")).stat().st_size
-
-                                    # Created_at et Updated_at 
-                                    created_at = dt.strftime('%Y-%m-%d %H:%M:%S')
-                                    updated_at = dt.strftime('%Y-%m-%d %H:%M:%S')
-
-                                    # Type mime des images :
-                                    # print(mimetypes.guess_type(f"img_temp/{model_id}/{image_name}")) # -> image/jpeg
-
-                                    # Création de la liste des données de l'image courante
-                                    img_datas_row = ['', model_id, 'exploded_view_picture', md5hash_img, 'jpg', 'image/jpeg', md5hash_img, size, created_at, updated_at]
-
-                                    # Copie de cette liste car sinon passée par référence
-                                    datas_copy = img_datas_row.copy()
-
-                                    # Ajout de la liste copiée dans la liste globale des données des images
-                                    img_datas_rows.append(datas_copy)
-
-                                    # Vidage de la liste de l'image courante
-                                    img_datas_row.clear() 
                         # FIN DE LA BOUCLE SUR LES PAGES DE DIETRICH
                 
                     # FIN DU TRAITEMENT DE DIETRICH
