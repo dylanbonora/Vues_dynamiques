@@ -40,8 +40,6 @@ error_files = []
 
 # FONCTION DE CONVERSION DES SCHEMAS EN JPG et liste des données
 def schemas_to_jpg_and_datas():
-        # Liste qui récupérera les données des images 
-    img_datas_row = ['', model_id, 'exploded_view_picture']
 
     # Sauvegarder la page en jpg dans dossier temporaire
     page = pages_pdf.load_page(iPage)  
@@ -70,8 +68,8 @@ def schemas_to_jpg_and_datas():
     # Type mime des images :
     # print(mimetypes.guess_type(f"img_temp/{model_id}/{image_name}")) # -> image/jpeg
 
-    # Ajout du hash, de la taille, l'extension, le type mime et les dates dans la liste des données de l'image courante
-    img_datas_row.extend([md5hash_img, 'jpg', 'image/jpeg', md5hash_img, size, created_at, updated_at])
+    # Création de la liste des données de l'image courante
+    img_datas_row = ['', model_id, 'exploded_view_picture', md5hash_img, 'jpg', 'image/jpeg', md5hash_img, size, created_at, updated_at]
 
     # Copie de cette liste car sinon passée par référence
     datas_copy = img_datas_row.copy()
@@ -301,6 +299,7 @@ with mysql.connector.connect(**connection_params) as cnx:
                                     pix = page.get_pixmap(matrix = fitz.Matrix(zoom, zoom))                    
                                     image_name = f"{str(iPage+1).zfill(3)}_{filename}.jpg"
                                     pix.save(f"img_temp/{model_id}/{image_name}", "JPEG")
+
                                     # On recadre l'image et on sauvegarde
                                     # crop_img = img[y1:y2, x1:x2]
                                     pix = cv2.imread(f"img_temp/{model_id}/{image_name}")
@@ -612,14 +611,11 @@ with mysql.connector.connect(**connection_params) as cnx:
                                         dfs_pdf.append(table.df)
                                 
                                 else:                    
-                                    # schemas_to_jpg_and_datas()
                                     image_name = f"{str(iPage+1).zfill(3)}_{filename}.jpg"
-
-                                    # Liste qui récupérera les données des images 
-                                    img_datas_row = ['', model_id, 'exploded_view_picture']
 
                                     list_img = page.get_images()
                                     for i,img in enumerate(list_img):
+                                        # Spécifique à De Dietrich
                                         if img[3] > 354: # img[3] hauteur de l'img -> c'est un schéma
 
                                             data_img = pages_pdf.extract_image(img[0])
@@ -647,8 +643,8 @@ with mysql.connector.connect(**connection_params) as cnx:
                                     # Type mime des images :
                                     # print(mimetypes.guess_type(f"img_temp/{model_id}/{image_name}")) # -> image/jpeg
 
-                                    # Ajout du hash, de la taille, l'extension, le type mime et les dates dans la liste des données de l'image courante
-                                    img_datas_row.extend([md5hash_img, 'jpg', 'image/jpeg', md5hash_img, size, created_at, updated_at])
+                                    # Création de la liste des données de l'image courante
+                                    img_datas_row = ['', model_id, 'exploded_view_picture', md5hash_img, 'jpg', 'image/jpeg', md5hash_img, size, created_at, updated_at]
 
                                     # Copie de cette liste car sinon passée par référence
                                     datas_copy = img_datas_row.copy()
