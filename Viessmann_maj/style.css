@@ -1,0 +1,38 @@
+@page { margin: 15px 2cm 15px 2cm; }
+
+header {
+    font-weight: bold;
+    color: rgb(240, 27, 27);
+    margin-bottom: 5px;
+
+}
+header, .modele {
+    font-size: 15px; 
+    font-family: Arial;
+    text-align: center;
+}
+
+.table {
+    margin-top: 15px;
+}
+
+.mystyle {
+    width: 100%;
+    font-size: 13px; 
+    font-family: Arial;
+    border-collapse: collapse; 
+}
+
+.mystyle th {
+    text-align: left;
+    border-bottom: 1px solid grey;
+}
+
+.mystyle td, th {
+    padding: 3px;
+}
+
+.mystyle tr:nth-child(even) {
+    background: #E0E0E0;
+}
+
