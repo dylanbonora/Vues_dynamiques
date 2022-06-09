@@ -3,7 +3,7 @@
 
 https://easysav.com/
 EasySAV est une société qui a développé une Application Web et Mobile
-qui centralise les Documentations techniques pour les Dépanneurs en génie climatique 
+qui centralise les documentations techniques pour les dépanneurs en génie climatique 
 leur permettant ainsi de gagner un temps précieux dans leur activité. 
 
 En tant que stagiaire, j'ai participe à un projet de Vues Eclatées Dynamiques pour les PDF
