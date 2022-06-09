@@ -17,11 +17,10 @@ Mais au vu du volume de la documentation en possession d'EasySAV,
 le taux de détéction n'a pas été suffisant pour pouvoir poursuivre.
 
 Ainsi, dans un second temps, il a été décidé de reconstituer les PDF en pages web 
-afin de rendre les tableaux dynamiques en affchant des informations au clic 
+afin de rendre les tableaux dynamiques en affchant des informations au clic sur les noms des pièces
 
 J'ai tout d'abord conçu une mini base de données avec jMerise puis phpMyAdmin
 pour correspondre à minima à la BDD de l'application
-pour pouvoir effectuer des tests
 
 J'ai ensuite développé un script Python pour :
 - Extraire les pièces en fonction des marques d'équipement et les envoyer en base de données
@@ -38,7 +37,7 @@ Les modules Pathlib et shutil m'ont permis de manipuler des fichiers/dossiers
 
 j'ai utilisé encore d'autres modules pour diverses tâches
 
-Vous pouvez consulter les scripts Tesseract et pdf_to_bdd.py
+Vous pouvez consulter les scripts pdf_to_bdd.py et Tesseract
 
 En PHP:
 J'ai effectué des premiers tests d'affichage concluants
