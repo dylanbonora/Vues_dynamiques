@@ -1,1 +1,0 @@
-# Vues_dynamiques
