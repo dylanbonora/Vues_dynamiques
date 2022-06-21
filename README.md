@@ -6,7 +6,7 @@ EasySAV est une société qui a développé une Application Web et Mobile
 qui centralise les documentations techniques pour les dépanneurs en génie climatique 
 leur permettant ainsi de gagner un temps précieux dans leur activité. 
 
-J'ai participe à un projet de Vues Eclatées Dynamiques pour les PDF
+J'ai participé à un projet de Vues Eclatées Dynamiques pour les PDF
 (ainsi qu'à la consommation d'une API) :
 
 Dans un premier temps, le projet consistait à afficher les informations des pièces
